@@ -22,25 +22,23 @@ def _():
 
 @app.cell
 def _():
+    import sys
     import ee
     import pandas as pd
     import numpy as np
     from pathlib import Path
 
     PROJECT_DIR = Path("/Users/guillaume/Documents/Recherche/Deforestation")
-    return Path, PROJECT_DIR, ee, np, pd
+    sys.path.insert(0, str(PROJECT_DIR / "src"))
+    from data.gee_utils import init_gee
+
+    return Path, PROJECT_DIR, ee, init_gee, np, pd
 
 
 @app.cell
-def _(ee, mo):
-    # Initialize GEE — will prompt for authentication on first run
-    try:
-        ee.Initialize()
-        mo.md("**GEE initialized successfully.**")
-    except Exception:
-        ee.Authenticate()
-        ee.Initialize()
-        mo.md("**GEE authenticated and initialized.**")
+def _(init_gee, mo):
+    init_gee()
+    mo.md("**GEE initialized successfully.**")
     return
 
 
@@ -73,7 +71,7 @@ def _(ee, mo):
 
         | Dataset | GEE ID | Temporal |
         |---------|--------|----------|
-        | Hansen GFC | `UMD/hansen/global_forest_change_2022_v1_10` | Static + lossyear |
+        | Hansen GFC | `UMD/hansen/global_forest_change_2024_v1_12` | Static + lossyear |
         | SRTM | `USGS/SRTMGL1_003` | Static |
         | CHIRPS Daily | `UCSB-CHG/CHIRPS/DAILY` | Daily |
         | ERA5-Land Daily | `ECMWF/ERA5_LAND/DAILY_AGGR` | Daily |
@@ -91,7 +89,7 @@ def _(ee, fc):
     # === EXTRACTION 1: Static features (SRTM + Hansen treecover) ===
 
     srtm = ee.Image("USGS/SRTMGL1_003")
-    hansen = ee.Image("UMD/hansen/global_forest_change_2022_v1_10")
+    hansen = ee.Image("UMD/hansen/global_forest_change_2024_v1_12")
 
     static_image = (
         srtm.select("elevation")

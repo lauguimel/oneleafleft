@@ -43,11 +43,18 @@ Sources (33 total): Hansen GFC, Sentinel-2, SRTM, CHIRPS daily, ERA5-Land daily,
 - Spatial split: geographic blocks to avoid autocorrelation
 - Prediction is PROBABILISTIC: P(deforestation) ∈ [0,1], not binary
 
+## GEE
+
+- Project ID: `ee-guillaumemaitrejean`
+- Init helper: `src/data/gee_utils.py` → `init_gee()`
+- Hansen GFC: use `UMD/hansen/global_forest_change_2024_v1_12` (v1.12, data through 2024)
+
 ## Commands
 
 ```bash
 # Install
-pip install -e ".[dev]"
+conda env create -f environment.yml
+conda activate deforest
 
 # Run Marimo notebook
 marimo edit notebooks/01_eda.py
