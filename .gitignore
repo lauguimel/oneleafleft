@@ -1,0 +1,47 @@
+# Data (large files) — only top-level data/
+/data/
+*.tif
+*.tiff
+*.hdf5
+*.h5
+*.csv
+!configs/*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+
+# Jupyter (legacy)
+.ipynb_checkpoints/
+
+# ML artifacts
+mlruns/
+ray_results/
+wandb/
+*.ckpt
+*.pth
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+.env
+credentials.json

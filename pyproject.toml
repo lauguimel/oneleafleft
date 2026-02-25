@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "deforestation-prediction"
+version = "0.1.0"
+description = "Multi-dimensional place embeddings for deforestation risk prediction in the Congo Basin"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Guillaume", email = ""},
+    {name = "Marc Bouvier", email = ""},
+]
+
+dependencies = [
+    # Core ML
+    "xgboost>=2.0",
+    "scikit-learn>=1.4",
+    "shap>=0.44",
+    "optuna>=3.5",
+    # Data
+    "pandas>=2.1",
+    "pyarrow>=14.0",
+    "geopandas>=0.14",
+    "rasterio>=1.3",
+    "shapely>=2.0",
+    # Google Earth Engine
+    "earthengine-api>=0.1.390",
+    # Visualization
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "folium>=0.15",
+    # Notebooks
+    "marimo>=0.10",
+    # Utilities
+    "tqdm>=4.66",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.2",
+]
+torch = [
+    "torch>=2.2",
+    "terratorch>=0.1",
+    "torchgeo>=0.6",
+]
+app = [
+    "streamlit>=1.30",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
