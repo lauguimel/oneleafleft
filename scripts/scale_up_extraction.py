@@ -51,10 +51,64 @@ BUFFERS_M = [150, 500, 1500, 5000]             # spatial context scales
 SEED = 42
 
 
-def main(n_points: int, skip_buffers: bool) -> None:
+def _run_feature_engineering(df_raw: pd.DataFrame, n_label: int) -> None:
+    """Run temporal feature engineering + sliding window on an existing raw parquet."""
+    print("\nTemporal feature engineering...")
+    df_eng = df_raw.copy()
+
+    df_eng = build_temporal_features(df_eng, "pop", YEARS)
+    for stat in ["precip_total", "dry_days", "extreme_rain_days"]:
+        df_eng = build_temporal_features(df_eng, stat, YEARS)
+
+    if "lossyear" in df_eng.columns:
+        for yr in YEARS:
+            yr_code = yr - 2000
+            df_eng[f"deforested_{yr}"] = (df_eng["lossyear"] == yr_code).astype(float)
+        df_eng["cum_loss_before"] = df_eng["lossyear"].between(1, YEARS[0] - 2000 - 1).astype(float)
+        df_eng["loss_last2yrs"] = df_eng[[f"deforested_{yr}" for yr in YEARS[-2:]]].sum(axis=1)
+        df_eng["forest_remaining"] = (
+            df_eng["treecover2000"] / 100.0
+            - df_eng[[f"deforested_{yr}" for yr in YEARS]].sum(axis=1) / 100.0
+        ).clip(lower=0)
+
+    print(f"  Engineered shape: {df_eng.shape}")
+
+    print("\nBuilding sliding window dataset...")
+    lossyear_raw = df_raw["lossyear"].fillna(0)
+    df_dataset = build_sliding_window_dataset(
+        df_features=df_eng,
+        lossyear_raw=lossyear_raw,
+        prediction_years=PREDICTION_YEARS,
+        feature_window=4,
+    )
+    print(f"  Dataset shape: {df_dataset.shape}")
+
+    for split in ["train", "val", "test"]:
+        sub = df_dataset[df_dataset["split"] == split]
+        pos_rate = sub["target"].mean() * 100 if len(sub) > 0 else 0
+        print(f"  {split:5s}: {len(sub):>7,} rows — {pos_rate:.1f}% deforested")
+
+    out_path = OUTPUT_DIR / f"features_{n_label}k_{date.today():%Y%m%d}.parquet"
+    df_dataset.to_parquet(out_path, index=False)
+    print(f"\nDataset saved to {out_path.name}")
+
+
+def main(n_points: int, skip_buffers: bool, from_raw: str | None) -> None:
     print("=" * 60)
     print(f"SCALE-UP EXTRACTION — {n_points:,} points")
     print("=" * 60)
+
+    # ── 0. from-raw shortcut ──────────────────────────────────────────────────
+    if from_raw is not None:
+        raw_path = Path(from_raw)
+        print(f"\nLoading raw checkpoint: {raw_path.name}")
+        df_raw = pd.read_parquet(raw_path)
+        n_label = len(df_raw) // 1000
+        _run_feature_engineering(df_raw, n_label)
+        print("=" * 60)
+        print("FEATURE ENGINEERING COMPLETE (from raw checkpoint)")
+        print("=" * 60)
+        return
 
     # ── 1. Init GEE ──────────────────────────────────────────────────────────
     print("\nInitializing GEE...")
@@ -139,53 +193,8 @@ def main(n_points: int, skip_buffers: bool) -> None:
     df_raw.to_parquet(raw_path)
     print(f"  Raw saved to {raw_path.name}")
 
-    # ── 8. Temporal feature engineering ───────────────────────────────────────
-    print("\nTemporal feature engineering...")
-    df_eng = df_raw.copy()
-
-    # Population temporal profiles
-    df_eng = build_temporal_features(df_eng, "pop", YEARS)
-
-    # CHIRPS temporal profiles
-    for stat in ["precip_total", "dry_days", "extreme_rain_days"]:
-        df_eng = build_temporal_features(df_eng, stat, YEARS)
-
-    # Loss momentum from Hansen lossyear_raw
-    if "lossyear" in df_eng.columns:
-        for yr in YEARS:
-            yr_code = yr - 2000
-            df_eng[f"deforested_{yr}"] = (df_eng["lossyear"] == yr_code).astype(float)
-        df_eng["cum_loss_before"] = df_eng["lossyear"].between(1, YEARS[0] - 2000 - 1).astype(float)
-        df_eng["loss_last2yrs"] = df_eng[[f"deforested_{yr}" for yr in YEARS[-2:]]].sum(axis=1)
-        df_eng["forest_remaining"] = (
-            df_eng["treecover2000"] / 100.0
-            - df_eng[[f"deforested_{yr}" for yr in YEARS]].sum(axis=1) / 100.0
-        ).clip(lower=0)
-
-    print(f"  Engineered shape: {df_eng.shape}")
-
-    # ── 9. Build sliding window dataset ───────────────────────────────────────
-    print("\nBuilding sliding window dataset...")
-    lossyear_raw = df_raw["lossyear"].fillna(0)
-
-    df_dataset = build_sliding_window_dataset(
-        df_features=df_eng,
-        lossyear_raw=lossyear_raw,
-        prediction_years=PREDICTION_YEARS,
-        feature_window=4,
-    )
-    print(f"  Dataset shape: {df_dataset.shape}")
-
-    # Split stats
-    for split in ["train", "val", "test"]:
-        sub = df_dataset[df_dataset["split"] == split]
-        pos_rate = sub["target"].mean() * 100 if len(sub) > 0 else 0
-        print(f"  {split:5s}: {len(sub):>7,} rows — {pos_rate:.1f}% deforested")
-
-    # Save final dataset
-    out_path = OUTPUT_DIR / f"features_{len(points)//1000}k_{date.today():%Y%m%d}.parquet"
-    df_dataset.to_parquet(out_path, index=False)
-    print(f"\nDataset saved to {out_path.name}")
+    # ── 8. Feature engineering + sliding window ───────────────────────────────
+    _run_feature_engineering(df_raw, len(points) // 1000)
 
     elapsed = time.time() - t_total
     print(f"\nTotal time: {elapsed/60:.1f} min")
@@ -200,5 +209,7 @@ if __name__ == "__main__":
                         help="Number of sample points (default: 5000, use 250000 for full)")
     parser.add_argument("--skip-buffers", action="store_true",
                         help="Skip multi-buffer spatial extraction (faster)")
+    parser.add_argument("--from-raw", type=str, default=None, metavar="RAW_PARQUET",
+                        help="Skip GEE extraction; rebuild features from existing raw parquet")
     args = parser.parse_args()
-    main(args.n_points, args.skip_buffers)
+    main(args.n_points, args.skip_buffers, args.from_raw)
