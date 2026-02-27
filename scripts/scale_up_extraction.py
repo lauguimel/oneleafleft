@@ -1,15 +1,25 @@
-"""Scale-up extraction: 250K points × 4 GEE sources → Parquet.
+"""Scale-up extraction: 250K points × 7 GEE sources → Parquet.
+
+Sources:
+- SRTM (elevation, slope) — static
+- Hansen GFC v1.12 (treecover2000, lossyear) — static + annual
+- WorldPop multi-country mosaic (population density) — annual
+- CHIRPS (precipitation stats) — annual
+- ERA5-Land (temperature, soil moisture, evapotranspiration) — annual
+- VIIRS nighttime lights (human activity proxy) — annual
+- MODIS Terra fire (fire frequency, intensity) — annual
 
 Implements:
 - Batched GEE extraction (4K pts/call → 63 batches for 250K)
 - Sliding window dataset (N examples per location)
 - Multi-buffer spatial features (150m, 500m, 1.5km, 5km)
-- Temporal feature engineering (Δ1yr, Δ3yr, anomaly)
+- Temporal feature engineering (relative lag columns)
 - Strict temporal split: train ≤2020, val 2021, test 2022
 
 Usage:
     conda activate deforest
-    python scripts/scale_up_extraction.py [--n-points N] [--skip-buffers]
+    python scripts/scale_up_extraction.py [--n-points N] [--skip-buffers] [--skip-era5]
+    python scripts/scale_up_extraction.py --from-raw data/raw_250k_YYYYMMDD.parquet
 
 Output: data/features_Nk_YYYYMMDD.parquet
 """
@@ -33,6 +43,9 @@ from data.gee_extraction import (
     extract_hansen_static,
     extract_worldpop,
     extract_chirps,
+    extract_era5,
+    extract_viirs,
+    extract_modis_fire,
     extract_hansen_buffers,
     build_temporal_features,
     build_sliding_window_dataset,
@@ -56,10 +69,29 @@ def _run_feature_engineering(df_raw: pd.DataFrame, n_label: int) -> None:
     print("\nTemporal feature engineering...")
     df_eng = df_raw.copy()
 
+    # Population temporal profiles
     df_eng = build_temporal_features(df_eng, "pop", YEARS)
+
+    # CHIRPS temporal profiles
     for stat in ["precip_total", "dry_days", "extreme_rain_days"]:
         df_eng = build_temporal_features(df_eng, stat, YEARS)
 
+    # ERA5 temporal profiles (if extracted)
+    for stat in ["temperature_2m", "sm_surface", "hot_days", "et"]:
+        if any(f"{stat}_{yr}" in df_raw.columns for yr in YEARS):
+            df_eng = build_temporal_features(df_eng, stat, YEARS)
+
+    # VIIRS nighttime lights temporal profiles (if extracted)
+    for stat in ["ntl_mean", "ntl_max"]:
+        if any(f"{stat}_{yr}" in df_raw.columns for yr in YEARS):
+            df_eng = build_temporal_features(df_eng, stat, YEARS)
+
+    # MODIS fire temporal profiles (if extracted)
+    for stat in ["fire_days"]:
+        if any(f"{stat}_{yr}" in df_raw.columns for yr in YEARS):
+            df_eng = build_temporal_features(df_eng, stat, YEARS)
+
+    # Hansen-derived features
     if "lossyear" in df_eng.columns:
         for yr in YEARS:
             yr_code = yr - 2000
@@ -93,7 +125,12 @@ def _run_feature_engineering(df_raw: pd.DataFrame, n_label: int) -> None:
     print(f"\nDataset saved to {out_path.name}")
 
 
-def main(n_points: int, skip_buffers: bool, from_raw: str | None) -> None:
+def main(n_points: int, skip_slow: bool, from_raw: str | None) -> None:
+    """
+    Args:
+        skip_slow: Skip MODIS fire + spatial buffers (both are slow GEE operations).
+    """
+    skip_buffers = skip_slow  # alias used throughout
     print("=" * 60)
     print(f"SCALE-UP EXTRACTION — {n_points:,} points")
     print("=" * 60)
@@ -138,7 +175,7 @@ def main(n_points: int, skip_buffers: bool, from_raw: str | None) -> None:
     t_total = time.time()
 
     # ── 3. Static extraction ──────────────────────────────────────────────────
-    print("\n[1/4] SRTM + Hansen static...")
+    print("\n[1/7] SRTM + Hansen static...")
     t0 = time.time()
     df_srtm = extract_srtm(points)
     df_hansen = extract_hansen_static(points)
@@ -146,11 +183,10 @@ def main(n_points: int, skip_buffers: bool, from_raw: str | None) -> None:
     print(f"  Done in {time.time()-t0:.0f}s — {df_static.shape[1]} columns")
 
     # ── 4. WorldPop ───────────────────────────────────────────────────────────
-    print("\n[2/4] WorldPop annual (2016-2020)...")
+    print("\n[2/7] WorldPop annual (multi-country mosaic, 2016-2020)...")
     t0 = time.time()
     df_pop = extract_worldpop(points, years=YEARS)
     print(f"  Done in {time.time()-t0:.0f}s — {df_pop.shape[1]} columns")
-    # Valid coverage stats
     for yr in YEARS:
         col = f"pop_{yr}"
         if col in df_pop.columns:
@@ -158,31 +194,55 @@ def main(n_points: int, skip_buffers: bool, from_raw: str | None) -> None:
             print(f"    {col}: {pct:.0f}% valid")
 
     # ── 5. CHIRPS ─────────────────────────────────────────────────────────────
-    print("\n[3/4] CHIRPS annual profiles (2016-2021)...")
+    print("\n[3/7] CHIRPS annual profiles (2016-2021)...")
     t0 = time.time()
     df_chirps = extract_chirps(points, years=YEARS)
     print(f"  Done in {time.time()-t0:.0f}s — {df_chirps.shape[1]} columns")
 
-    # ── 6. Multi-buffer spatial context ───────────────────────────────────────
-    if not skip_buffers:
-        print(f"\n[4/4] Hansen deforestation rate at {BUFFERS_M} m buffers...")
+    # ── 6. ERA5-Land ──────────────────────────────────────────────────────────
+    print("\n[4/7] ERA5-Land annual profiles (2016-2021)...")
+    t0 = time.time()
+    df_era5 = extract_era5(points, years=YEARS)
+    print(f"  Done in {time.time()-t0:.0f}s — {df_era5.shape[1]} columns")
+
+    # ── 7. VIIRS nighttime lights ─────────────────────────────────────────────
+    print("\n[5/7] VIIRS nighttime lights annual profiles (2016-2021)...")
+    t0 = time.time()
+    df_viirs = extract_viirs(points, years=YEARS)
+    print(f"  Done in {time.time()-t0:.0f}s — {df_viirs.shape[1]} columns")
+
+    # ── 8. MODIS fire ─────────────────────────────────────────────────────────
+    if not skip_buffers:  # reuse skip_buffers flag as "skip slow sources"
+        print("\n[6/7] MODIS Terra fire annual stats (2016-2021)...")
         t0 = time.time()
-        # Only compute buffers for prediction years (not all years)
+        df_fire = extract_modis_fire(points, years=YEARS)
+        print(f"  Done in {time.time()-t0:.0f}s — {df_fire.shape[1]} columns")
+    else:
+        df_fire = pd.DataFrame(index=points.index)
+        print("\n[6/7] Skipping MODIS fire (--skip-buffers implies skip slow sources)")
+
+    # ── 9. Hansen spatial buffers ─────────────────────────────────────────────
+    if not skip_buffers:
+        print(f"\n[7/7] Hansen deforestation rate at {BUFFERS_M} m buffers...")
+        t0 = time.time()
         df_buffers = extract_hansen_buffers(
             points, years=PREDICTION_YEARS[:-1], buffers_m=BUFFERS_M
         )
         print(f"  Done in {time.time()-t0:.0f}s — {df_buffers.shape[1]} columns")
     else:
         df_buffers = pd.DataFrame(index=points.index)
-        print("\n[4/4] Skipping spatial buffers (--skip-buffers)")
+        print("\n[7/7] Skipping spatial buffers (--skip-buffers)")
 
-    # ── 7. Merge raw features ─────────────────────────────────────────────────
+    # ── 10. Merge raw features ────────────────────────────────────────────────
     print("\nMerging raw features...")
     df_raw = (
         points[["lon", "lat"]]
         .join(df_static)
         .join(df_pop)
         .join(df_chirps)
+        .join(df_era5)
+        .join(df_viirs)
+        .join(df_fire)
         .join(df_buffers)
     )
     print(f"  Raw shape: {df_raw.shape}")
@@ -208,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-points", type=int, default=5000,
                         help="Number of sample points (default: 5000, use 250000 for full)")
     parser.add_argument("--skip-buffers", action="store_true",
-                        help="Skip multi-buffer spatial extraction (faster)")
+                        help="Skip MODIS fire + spatial buffers (both are slow; use for quick tests)")
     parser.add_argument("--from-raw", type=str, default=None, metavar="RAW_PARQUET",
                         help="Skip GEE extraction; rebuild features from existing raw parquet")
     args = parser.parse_args()

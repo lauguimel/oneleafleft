@@ -113,34 +113,43 @@ def extract_hansen_static(points: pd.DataFrame, **kw) -> pd.DataFrame:
     return extract_image(img, points, scale=30, **kw)
 
 
-# ─── WorldPop annual (COD, 2000-2020) ────────────────────────────────────────
+# ─── WorldPop annual (multi-country mosaic, 2000-2020) ───────────────────────
 
 
 def extract_worldpop(
     points: pd.DataFrame,
     years: list[int],
-    country: str = "COD",
     **kw,
 ) -> pd.DataFrame:
     """WorldPop population density (persons/pixel) for requested years.
 
-    Data available for COD: 2000-2020 (band: 'population').
-    Years beyond 2020 are clamped to 2020.
+    Uses filterBounds on the points bounding box to automatically include all
+    countries in the study area (e.g. COD, COG, CAF, CMR, GAB for tile 10N_020E),
+    then mosaics country images. This avoids the ~50% NaN rate from COD-only filter.
+
+    Data available: 2000-2020. Years beyond 2020 are clamped to 2020.
     """
     worldpop = ee.ImageCollection("WorldPop/GP/100m/pop")
+
+    # Bounding box of study area for spatial filter
+    lon_min = float(points["lon"].min())
+    lon_max = float(points["lon"].max())
+    lat_min = float(points["lat"].min())
+    lat_max = float(points["lat"].max())
+    aoi = ee.Geometry.Rectangle([lon_min, lat_min, lon_max, lat_max])
+
     dfs = {}
     for yr in years:
         yr_eff = min(yr, 2020)
         img = (
             worldpop
-            .filter(ee.Filter.eq("country", country))
+            .filterBounds(aoi)
             .filter(ee.Filter.eq("year", yr_eff))
-            .first()
             .select("population")
+            .mosaic()
             .rename(f"pop_{yr}")
         )
         df = extract_image(img, points, scale=100, **kw)
-        # GEE may rename band: find the right column
         if f"pop_{yr}" not in df.columns:
             candidates = [c for c in df.columns if "pop" in c.lower()
                           or "first" in c.lower() or "population" in c.lower()]
@@ -187,6 +196,155 @@ def extract_chirps(
         cols = [f"precip_total_{yr}", f"precip_mean_{yr}", f"precip_max_{yr}",
                 f"dry_days_{yr}", f"extreme_rain_days_{yr}"]
         df = extract_image(img, points, scale=5000, **kw)
+        available = [c for c in cols if c in df.columns]
+        dfs.append(df[available])
+    return pd.concat(dfs, axis=1)
+
+
+# ─── ERA5-Land annual profiles (temperature, soil moisture) ──────────────────
+
+
+def _era5_annual_image(year: int) -> ee.Image:
+    """Server-side annual ERA5-Land stats from daily aggregates.
+
+    Bands extracted:
+        temperature_2m_{year}      — mean annual 2m air temperature (K)
+        temperature_2m_max_{year}  — mean of daily max temperature (K)
+        hot_days_{year}            — days with max temp > 308.15 K (35°C)
+        sm_surface_{year}          — mean surface soil moisture (m³/m³)
+        sm_anom_proxy_{year}       — std of daily soil moisture (inter-annual volatility)
+        et_{year}                  — mean daily potential evapotranspiration (m/day)
+    """
+    start = ee.Date.fromYMD(year, 1, 1)
+    end = ee.Date.fromYMD(year, 12, 31)
+    daily = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR").filterDate(start, end)
+
+    temp = daily.select("temperature_2m").mean().rename(f"temperature_2m_{year}")
+    temp_max = daily.select("temperature_2m_max").mean().rename(f"temperature_2m_max_{year}")
+    hot_days = (
+        daily.select("temperature_2m_max")
+        .map(lambda img: img.gt(308.15).rename("hot"))
+        .sum()
+        .rename(f"hot_days_{year}")
+    )
+    sm = daily.select("volumetric_soil_water_layer_1").mean().rename(f"sm_surface_{year}")
+    sm_std = daily.select("volumetric_soil_water_layer_1").reduce(ee.Reducer.stdDev()).rename(f"sm_std_{year}")
+    et = daily.select("potential_evaporation_sum").mean().rename(f"et_{year}")
+
+    return (
+        temp
+        .addBands(temp_max)
+        .addBands(hot_days)
+        .addBands(sm)
+        .addBands(sm_std)
+        .addBands(et)
+    )
+
+
+def extract_era5(
+    points: pd.DataFrame,
+    years: list[int],
+    **kw,
+) -> pd.DataFrame:
+    """ERA5-Land annual profiles (6 stats/year) at 9km scale."""
+    dfs = []
+    for yr in years:
+        img = _era5_annual_image(yr)
+        cols = [
+            f"temperature_2m_{yr}", f"temperature_2m_max_{yr}", f"hot_days_{yr}",
+            f"sm_surface_{yr}", f"sm_std_{yr}", f"et_{yr}",
+        ]
+        df = extract_image(img, points, scale=9000, **kw)
+        available = [c for c in cols if c in df.columns]
+        dfs.append(df[available])
+    return pd.concat(dfs, axis=1)
+
+
+# ─── VIIRS nighttime lights monthly → annual profiles ─────────────────────────
+
+
+def _viirs_annual_image(year: int) -> ee.Image:
+    """Server-side annual VIIRS nighttime lights stats from monthly composites.
+
+    Bands:
+        ntl_mean_{year}   — mean annual radiance (nW/cm²/sr)
+        ntl_max_{year}    — max monthly radiance (peak activity)
+        ntl_cv_{year}     — coefficient of variation (seasonal variability)
+    """
+    start = ee.Date.fromYMD(year, 1, 1)
+    end = ee.Date.fromYMD(year, 12, 31)
+    monthly = (
+        ee.ImageCollection("NOAA/VIIRS/DNB/MONTHLY_V1/VCMSLCFG")
+        .filterDate(start, end)
+        .select("avg_rad")
+        .map(lambda img: img.max(ee.Image(0)))  # clamp negative values to 0
+    )
+    mean = monthly.mean().rename(f"ntl_mean_{year}")
+    maxv = monthly.max().rename(f"ntl_max_{year}")
+    std  = monthly.reduce(ee.Reducer.stdDev()).rename(f"ntl_std_{year}")
+    # CV = std / mean (seasonal variability relative to level)
+    cv = std.divide(mean.max(ee.Image(0.001))).rename(f"ntl_cv_{year}")
+
+    return mean.addBands(maxv).addBands(std).addBands(cv)
+
+
+def extract_viirs(
+    points: pd.DataFrame,
+    years: list[int],
+    **kw,
+) -> pd.DataFrame:
+    """VIIRS nighttime lights annual profiles (4 stats/year) at 750m scale."""
+    dfs = []
+    for yr in years:
+        img = _viirs_annual_image(yr)
+        cols = [f"ntl_mean_{yr}", f"ntl_max_{yr}", f"ntl_std_{yr}", f"ntl_cv_{yr}"]
+        df = extract_image(img, points, scale=750, **kw)
+        available = [c for c in cols if c in df.columns]
+        dfs.append(df[available])
+    return pd.concat(dfs, axis=1)
+
+
+# ─── MODIS fire annual profiles ───────────────────────────────────────────────
+
+
+def _modis_fire_annual_image(year: int) -> ee.Image:
+    """Server-side annual MODIS Terra fire stats.
+
+    Bands:
+        fire_days_{year}    — number of days with active fire detected
+        fire_max_{year}     — max fire radiative power in a single day (MW)
+        fire_season_{year}  — peak month of fire activity (1-12)
+    """
+    start = ee.Date.fromYMD(year, 1, 1)
+    end = ee.Date.fromYMD(year, 12, 31)
+
+    daily = ee.ImageCollection("MODIS/061/MOD14A1").filterDate(start, end)
+
+    # Fire mask: FireMask band ≥ 7 = high-confidence fire
+    fire_binary = daily.map(
+        lambda img: img.select("FireMask").gte(7).rename("fire")
+    )
+    fire_days = fire_binary.sum().rename(f"fire_days_{year}")
+    fire_max = (
+        daily.select("MaxFRP")
+        .max()
+        .rename(f"fire_max_{year}")
+    )
+
+    return fire_days.addBands(fire_max)
+
+
+def extract_modis_fire(
+    points: pd.DataFrame,
+    years: list[int],
+    **kw,
+) -> pd.DataFrame:
+    """MODIS Terra fire annual profiles (2 stats/year) at 1km scale."""
+    dfs = []
+    for yr in years:
+        img = _modis_fire_annual_image(yr)
+        cols = [f"fire_days_{yr}", f"fire_max_{yr}"]
+        df = extract_image(img, points, scale=1000, **kw)
         available = [c for c in cols if c in df.columns]
         dfs.append(df[available])
     return pd.concat(dfs, axis=1)
