@@ -15,6 +15,7 @@ Output:
 
 import argparse
 import json
+import re
 import sys
 import time
 from datetime import date
@@ -43,6 +44,41 @@ NON_FEATURE_COLS = {
     "lossyear",          # raw Hansen lossyear → target leakage
 }
 
+# Global summary features computed over ALL years 2016-2021, regardless of the
+# prediction window → leaks future population/climate data for earlier prediction
+# years (e.g., pred_yr=2019 has window 2015-2018, but pop_mean includes 2020-2021).
+# These are replaced by leak-free window summaries computed in add_window_summaries().
+_GLOBAL_SUMMARY_SUFFIXES = ("_mean", "_trend")  # e.g., pop_mean, precip_total_trend
+
+
+def add_window_summaries(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute leak-free window mean and trend from lag-indexed columns.
+
+    For each variable with Lag columns (e.g., pop_Lag1..pop_Lag4), adds:
+        {var}_wmean  — mean over the feature window (e.g., mean of pop_Lag1..pop_Lag4)
+        {var}_wtrend — change over the window: Lag1 - Lag_max (most recent - oldest)
+
+    These replace the global pop_mean / pop_trend which include future data
+    for earlier prediction years in the sliding window.
+    """
+    _lag_re = re.compile(r"^(.+)_Lag(\d+)$")
+    var_lags: dict[str, list[tuple[int, str]]] = {}
+    for col in df.columns:
+        m = _lag_re.match(col)
+        if m:
+            base, lag = m.group(1), int(m.group(2))
+            var_lags.setdefault(base, []).append((lag, col))
+
+    df = df.copy()
+    for base, lag_list in var_lags.items():
+        if len(lag_list) >= 2:
+            sorted_by_lag = sorted(lag_list)          # ascending: Lag1, Lag2, ...
+            lag_cols = [c for _, c in sorted_by_lag]
+            df[f"{base}_wmean"] = df[lag_cols].mean(axis=1)
+            # wtrend = most recent (Lag1) minus oldest (LagN): positive = increasing
+            df[f"{base}_wtrend"] = df[sorted_by_lag[0][1]] - df[sorted_by_lag[-1][1]]
+    return df
+
 
 def find_latest_parquet(data_dir: Path) -> Path:
     """Return the most recent features_*.parquet in data_dir."""
@@ -59,9 +95,23 @@ def load_dataset(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
     df = pd.read_parquet(path)
     print(f"  Loaded: {df.shape[0]:,} rows × {df.shape[1]} columns")
 
+    # Add leak-free window summaries before selecting feature cols
+    df = add_window_summaries(df)
+
+    # Exclude global summary features (computed over all years → future leakage)
+    global_summaries = {
+        c for c in df.columns
+        if any(c.endswith(sfx) for sfx in _GLOBAL_SUMMARY_SUFFIXES)
+        and not c.endswith("_wmean") and not c.endswith("_wtrend")
+    }
+    if global_summaries:
+        print(f"  Excluding {len(global_summaries)} global summary cols (future leakage): "
+              f"{sorted(global_summaries)[:3]}...")
+
     # Identify feature columns
-    feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLS]
-    print(f"  Feature columns: {len(feature_cols)}")
+    excluded = NON_FEATURE_COLS | global_summaries
+    feature_cols = [c for c in df.columns if c not in excluded]
+    print(f"  Feature columns: {len(feature_cols)} ({df.shape[1] - len(feature_cols)} excluded)")
 
     # Log NaN summary
     nan_pct = df[feature_cols].isna().mean() * 100
@@ -69,7 +119,6 @@ def load_dataset(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
     if len(high_nan) > 0:
         print(f"  Columns with >30% NaN ({len(high_nan)}): {list(high_nan.index[:5])}{'...' if len(high_nan)>5 else ''}")
     print(f"  Overall NaN rate: {df[feature_cols].isna().mean().mean()*100:.1f}%")
-    print(f"  XGBoost handles NaN natively — no imputation needed")
 
     train = df[df["split"] == "train"]
     val   = df[df["split"] == "val"]
@@ -98,10 +147,13 @@ def train(
     y_val: np.ndarray,
     scale_pos_weight: float,
     n_estimators: int = 1000,
-    max_depth: int = 6,
+    max_depth: int = 5,
     learning_rate: float = 0.05,
     subsample: float = 0.8,
-    colsample_bytree: float = 0.8,
+    colsample_bytree: float = 0.7,
+    min_child_weight: int = 10,   # require ≥10 samples per leaf (prevents tiny leaves on rare positives)
+    gamma: float = 1.0,           # min loss reduction required to split (conservative splitting)
+    reg_lambda: float = 5.0,      # L2 regularization (reduce overfit to specific locations)
     early_stopping_rounds: int = 30,
     seed: int = 42,
 ) -> xgb.XGBClassifier:
@@ -111,6 +163,9 @@ def train(
         learning_rate=learning_rate,
         subsample=subsample,
         colsample_bytree=colsample_bytree,
+        min_child_weight=min_child_weight,
+        gamma=gamma,
+        reg_lambda=reg_lambda,
         scale_pos_weight=scale_pos_weight,
         eval_metric="aucpr",          # PR-AUC more informative for imbalanced data
         early_stopping_rounds=early_stopping_rounds,
