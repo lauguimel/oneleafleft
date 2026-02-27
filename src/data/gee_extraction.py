@@ -280,6 +280,23 @@ def build_temporal_features(
     return df
 
 
+def _to_lag_col(col: str, pred_yr: int, feat_yrs: list[int]) -> str:
+    """Rename {var}_{YYYY} → {var}_Lag{T-YYYY} for consistent temporal indexing.
+
+    Example: pop_2018 with pred_yr=2019 → pop_Lag1 (1 year before prediction).
+             pop_2018 with pred_yr=2022 → pop_Lag4 (4 years before prediction).
+
+    Checks suffix only (longest match first) to avoid partial replacements.
+    Columns without a matching year suffix are returned unchanged.
+    """
+    for yr in sorted(feat_yrs, reverse=True):
+        suffix = f"_{yr}"
+        if col.endswith(suffix):
+            lag = pred_yr - yr
+            return col[: -len(suffix)] + f"_Lag{lag}"
+    return col
+
+
 def build_sliding_window_dataset(
     df_features: pd.DataFrame,
     lossyear_raw: pd.Series,
@@ -291,6 +308,12 @@ def build_sliding_window_dataset(
     For each prediction year T, features from years [T-feature_window, T-1]
     are used to predict deforestation in year T.
 
+    Year-indexed columns (e.g. pop_2018) are renamed to lag-indexed columns
+    (e.g. pop_Lag1 for pred_yr=2019, pop_Lag4 for pred_yr=2022) so that the
+    model always sees the same feature names regardless of which prediction
+    year a row belongs to. This prevents train/test distributional shift caused
+    by NaN-filled absolute-year columns.
+
     Locations already deforested before the prediction window are excluded
     (they cannot be deforested again).
 
@@ -301,8 +324,8 @@ def build_sliding_window_dataset(
         feature_window: Number of years of history to include.
 
     Returns:
-        DataFrame with columns: pid, prediction_year, target, + feature columns.
-        Split column: 'split' ∈ {'train', 'val', 'test'}.
+        DataFrame with columns: pid, prediction_year, target, split,
+        static features (original names), and lag-indexed feature columns.
     """
     rows = []
 
@@ -321,19 +344,35 @@ def build_sliding_window_dataset(
         else:
             previously_deforested = pd.Series(False, index=lossyear_raw.index)
 
-        # Build feature subset for this window
-        feature_cols = []
-        for yr in feat_yrs:
-            yr_cols = [c for c in df_features.columns
-                       if c.endswith(f"_{yr}") or f"_{yr}_" in c]
-            feature_cols.extend(yr_cols)
-        # Also include static features (no year suffix)
-        static_cols = [c for c in df_features.columns
-                       if not any(str(y) in c for y in range(2010, 2025))]
-        all_cols = list(dict.fromkeys(static_cols + feature_cols))
-        available_cols = [c for c in all_cols if c in df_features.columns]
+        # Static features: columns with no year substring 2010-2024
+        static_cols = [
+            c for c in df_features.columns
+            if not any(str(y) in c for y in range(2010, 2025))
+        ]
 
-        df_window = df_features[available_cols].copy()
+        # Year-specific features for this prediction window
+        year_cols = []
+        for yr in feat_yrs:
+            yr_cols = [
+                c for c in df_features.columns
+                if c.endswith(f"_{yr}") or f"_{yr}_" in c
+            ]
+            year_cols.extend(yr_cols)
+        year_cols = list(dict.fromkeys(year_cols))  # deduplicate, preserve order
+
+        # Select available columns
+        available_static = [c for c in static_cols if c in df_features.columns]
+        available_year = [c for c in year_cols if c in df_features.columns]
+
+        df_window = df_features[available_static + available_year].copy()
+
+        # Rename year-indexed → lag-indexed for temporal consistency
+        rename_map = {
+            col: _to_lag_col(col, pred_yr, feat_yrs)
+            for col in available_year
+        }
+        df_window = df_window.rename(columns=rename_map)
+
         df_window["target"] = target
         df_window["prediction_year"] = pred_yr
         df_window["already_deforested"] = previously_deforested
