@@ -7,6 +7,9 @@ Usage:
     conda activate deforest
     python scripts/add_sources.py --raw data/raw_250k_20260228.parquet
     python scripts/add_sources.py --raw data/raw_250k_20260228.parquet --skip-fire
+
+    # Extend to 2022-2023 for 2024 held-out test:
+    python scripts/add_sources.py --raw data/raw_250k_20260228.parquet --years 2016 2017 2018 2019 2020 2021 2022 2023
 """
 
 import argparse
@@ -24,17 +27,20 @@ from data.gee_extraction import (
     extract_era5,
     extract_viirs,
     extract_modis_fire,
-    build_temporal_features,
-    build_sliding_window_dataset,
+    rebuild_features_dataset,
 )
 
-YEARS = [2016, 2017, 2018, 2019, 2020, 2021]
-PREDICTION_YEARS = [2019, 2020, 2021, 2022]
+_DEFAULT_YEARS = [2016, 2017, 2018, 2019, 2020, 2021]
 
 
-def main(raw_path: Path, skip_fire: bool) -> None:
+def main(raw_path: Path, skip_fire: bool, years: list[int]) -> None:
+    # Prediction years: start when feature_window (4) years of data are available,
+    # end at max(years)+1 (one future year to predict).
+    prediction_years = list(range(years[0] + 3, years[-1] + 2))
+
     print("=" * 60)
     print("ADD SOURCES — ERA5 + VIIRS" + (" (no fire)" if skip_fire else " + MODIS fire"))
+    print(f"  years={years}  prediction_years={prediction_years}")
     print("=" * 60)
 
     # ── 1. Load raw checkpoint ────────────────────────────────────────────────
@@ -54,26 +60,26 @@ def main(raw_path: Path, skip_fire: bool) -> None:
     # ── 3. ERA5 ───────────────────────────────────────────────────────────────
     print("\n[1] ERA5-Land annual profiles (temperature, soil moisture, ET)...")
     t0 = time.time()
-    df_era5 = extract_era5(points, years=YEARS)
+    df_era5 = extract_era5(points, years=years)
     print(f"  Done in {time.time()-t0:.0f}s — {df_era5.shape[1]} columns")
-    for col in [f"temperature_2m_{YEARS[-1]}", f"sm_surface_{YEARS[-1]}"]:
+    for col in [f"temperature_2m_{years[-1]}", f"sm_surface_{years[-1]}"]:
         if col in df_era5.columns:
             print(f"    {col}: {df_era5[col].notna().mean()*100:.0f}% valid")
 
     # ── 4. VIIRS ──────────────────────────────────────────────────────────────
     print("\n[2] VIIRS nighttime lights annual profiles...")
     t0 = time.time()
-    df_viirs = extract_viirs(points, years=YEARS)
+    df_viirs = extract_viirs(points, years=years)
     print(f"  Done in {time.time()-t0:.0f}s — {df_viirs.shape[1]} columns")
 
     # ── 5. MODIS fire (optional) ──────────────────────────────────────────────
     if not skip_fire:
         print("\n[3] MODIS Terra fire annual stats...")
         t0 = time.time()
-        df_fire = extract_modis_fire(points, years=YEARS)
+        df_fire = extract_modis_fire(points, years=years)
         print(f"  Done in {time.time()-t0:.0f}s — {df_fire.shape[1]} columns")
-        fire_pct = (df_fire[f"fire_days_{YEARS[-1]}"] > 0).mean() * 100
-        print(f"    fire_days_{YEARS[-1]}: {fire_pct:.1f}% of points had fire")
+        fire_pct = (df_fire[f"fire_days_{years[-1]}"] > 0).mean() * 100
+        print(f"    fire_days_{years[-1]}: {fire_pct:.1f}% of points had fire")
     else:
         df_fire = pd.DataFrame(index=points.index)
         print("\n[3] Skipping MODIS fire (--skip-fire)")
@@ -89,34 +95,7 @@ def main(raw_path: Path, skip_fire: bool) -> None:
 
     # ── 7. Rebuild features ───────────────────────────────────────────────────
     print("\nRebuilding features dataset...")
-    df_eng = df_raw_patched.copy()
-
-    df_eng = build_temporal_features(df_eng, "pop", YEARS)
-    for stat in ["precip_total", "dry_days", "extreme_rain_days"]:
-        df_eng = build_temporal_features(df_eng, stat, YEARS)
-    for stat in ["temperature_2m", "sm_surface", "hot_days", "et"]:
-        if any(f"{stat}_{yr}" in df_raw_patched.columns for yr in YEARS):
-            df_eng = build_temporal_features(df_eng, stat, YEARS)
-    for stat in ["ntl_mean", "ntl_max"]:
-        if any(f"{stat}_{yr}" in df_raw_patched.columns for yr in YEARS):
-            df_eng = build_temporal_features(df_eng, stat, YEARS)
-    for stat in ["fire_days"]:
-        if any(f"{stat}_{yr}" in df_raw_patched.columns for yr in YEARS):
-            df_eng = build_temporal_features(df_eng, stat, YEARS)
-
-    if "lossyear" in df_eng.columns:
-        for yr in YEARS:
-            yr_code = yr - 2000
-            df_eng[f"deforested_{yr}"] = (df_eng["lossyear"] == yr_code).astype(float)
-        df_eng["cum_loss_before"] = df_eng["lossyear"].between(1, YEARS[0] - 2000 - 1).astype(float)
-        df_eng["loss_last2yrs"] = df_eng[[f"deforested_{yr}" for yr in YEARS[-2:]]].sum(axis=1)
-        df_eng["forest_remaining"] = (
-            df_eng["treecover2000"] / 100.0
-            - df_eng[[f"deforested_{yr}" for yr in YEARS]].sum(axis=1) / 100.0
-        ).clip(lower=0)
-
-    lossyear_raw = df_raw_patched["lossyear"].fillna(0)
-    df_dataset = build_sliding_window_dataset(df_eng, lossyear_raw, PREDICTION_YEARS, feature_window=4)
+    df_dataset = rebuild_features_dataset(df_raw_patched, years, prediction_years)
     print(f"  Dataset shape: {df_dataset.shape}")
 
     for split in ["train", "val", "test"]:
@@ -139,5 +118,8 @@ if __name__ == "__main__":
     parser.add_argument("--raw", type=Path, required=True, help="Path to raw_*.parquet")
     parser.add_argument("--skip-fire", action="store_true",
                         help="Skip MODIS fire (faster; ~6h for 250K)")
+    parser.add_argument("--years", type=int, nargs="+", default=_DEFAULT_YEARS,
+                        help="GEE extraction years (default: 2016-2021). "
+                             "To add 2022-2023: --years 2016 2017 2018 2019 2020 2021 2022 2023")
     args = parser.parse_args()
-    main(args.raw, args.skip_fire)
+    main(args.raw, args.skip_fire, sorted(args.years))

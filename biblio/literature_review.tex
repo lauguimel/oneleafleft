@@ -1,0 +1,147 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{natbib}
+\bibliographystyle{apalike}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{parskip}
+
+\title{Literature Review:\\Multi-Dimensional and Multi-Temporal Deforestation Risk Prediction in the Congo Basin}
+\author{Guillaume}
+\date{February 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document reviews the scientific literature relevant to predicting deforestation risk in the Congo Basin using machine learning. It covers seven themes: deforestation patterns, predictive modeling, multi-dimensional driver analysis, model interpretability, spatial-temporal validation, data sources, and emerging foundation models. The review identifies critical gaps---notably the underrepresentation of the Congo Basin in predictive modeling studies and the absence of multi-dimensional, multi-temporal ablation analyses---motivating our research project.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Introduction}
+% =============================================================================
+
+Tropical deforestation contributes approximately 10\% of global CO\textsubscript{2} emissions and drives biodiversity loss at unprecedented rates. The Congo Basin, Earth's second-largest tropical forest, stores an estimated 60 billion tonnes of carbon across six countries. Yet compared to the Amazon and Southeast Asia, it remains critically understudied in the predictive modeling literature.
+
+This review synthesizes the state of knowledge across seven dimensions: (1)~deforestation patterns in the Congo Basin, (2)~predictive modeling approaches, (3)~multi-dimensional driver analysis, (4)~machine learning interpretability, (5)~spatial-temporal validation, (6)~remote sensing data sources, and (7)~emerging approaches including foundation models.
+
+% =============================================================================
+\section{Deforestation in the Congo Basin}
+% =============================================================================
+
+\subsection{Extent and Trends}
+
+The Hansen Global Forest Change dataset \citep{Hansen2013} provides the foundational reference for monitoring forest loss at 30\,m resolution globally. Using Landsat time-series imagery from 2000 to the present (now v1.12), it maps annual tree cover loss across the tropics.
+
+\citet{Tyukavina2018} demonstrated that 84\% of forest disturbance in the Congo Basin is due to small-scale, nonmechanized clearing for agriculture, with the DRC alone accounting for nearly two-thirds of total basin-wide forest loss. Annual rates of smallholder clearing in primary forests doubled between 2000 and 2014, mirroring population growth.
+
+\citet{Potapov2012} quantified forest cover loss in the DRC using Landsat ETM+ data (2000--2010). \citet{Ernst2013} provided a multi-temporal analysis of national forest cover change for 1990, 2000, and 2005. \citet{Aleman2018} placed these trends in historical context, analyzing forest extent changes in tropical Africa since 1900. More recently, \citet{Kafy2024} projected forest cover changes under IPCC scenarios through 2050.
+
+\subsection{Drivers}
+
+\citet{Shapiro2023} confirmed that small-scale agriculture continues to drive deforestation even in fragmented forests (2015--2020). \citet{Masolele2024} used Sentinel-1/2 imagery with deep learning to monitor road development at 10\,m monthly resolution, demonstrating the link between infrastructure expansion and forest clearing. Mining represents another growing threat: deforestation impacts around mining sites are on average 28 times larger than the mine footprint itself.
+
+\subsection{Socioeconomic and Governance Context}
+
+Population growth, commodity demand, weak governance, and conflict interact as deforestation drivers. The DRC's low development and political instability produce clearing rates correlated with population growth \citep{Tyukavina2018}. Poor governance and corruption are identified as major obstacles to forest protection.
+
+% =============================================================================
+\section{Predictive Modeling for Deforestation}
+% =============================================================================
+
+\subsection{Machine Learning: Random Forest and XGBoost}
+
+XGBoost \citep{Chen2016} has emerged as a dominant approach for tabular geospatial prediction. \citet{Mayfield2020} demonstrated the effectiveness of freely available datasets with ML methods for deforestation prediction. \citet{Saha2024} applied ML to predict Amazon deforestation dynamics using integrated socioeconomic and environmental variables.
+
+\subsection{Deep Learning Approaches}
+
+\textbf{DeepForestcast} \citep{Ball2022} used deep CNNs on Hansen maps (2001--2020), Landsat imagery, and the ALOS DSM to forecast Amazonian deforestation at $\sim$30\,m. Four architectures (2D-CNN, 3D-CNN, ConvLSTM, hybrid) achieved F1 scores of 0.58--0.71. Models retaining spatiotemporal structure outperformed spatial-only models.
+
+\textbf{ForestCast} \citep{ForestCast2025}, from Google DeepMind, scales deforestation risk forecasting using vision transformers, processing entire satellite tiles in one pass. \citet{Irvin2024} automated deforestation driver attribution using deep learning. \citet{Descals2024} released a labeled dataset for driver classification in Cameroon.
+
+\subsection{Reviews and Benchmarks}
+
+\citet{Mugabowindekwe2024} systematically reviewed deep learning for deforestation detection. \citet{Ortiz-Reyes2021} compared spatial and temporal deep learning methods across the pan-tropics.
+
+% =============================================================================
+\section{Multi-Dimensional Drivers and Feature Engineering}
+% =============================================================================
+
+\subsection{Satellite Imagery}
+
+Sentinel-2 \citep{Drusch2012} provides 10\,m multispectral imagery with $\sim$5-day revisit. The Hansen dataset \citep{Hansen2013} uses Landsat at 30\,m for annual change detection.
+
+\subsection{Climate Variables}
+
+CHIRPS \citep{Funk2015} provides precipitation at 5\,km daily resolution. ERA5 \citep{Hersbach2020} and ERA5-Land \citep{MunozSabater2021} provide temperature, soil moisture, and evapotranspiration at 9\,km resolution.
+
+\subsection{Socioeconomic Indicators}
+
+WorldPop \citep{Tatem2017} disaggregates census data to $\sim$100\,m grids. VIIRS nighttime lights \citep{Elvidge2017} proxy economic activity at 750\,m.
+
+\subsection{Conflict and Governance}
+
+ACLED \citep{Raleigh2010} provides georeferenced armed conflict events. V-Dem \citep{VDem2024} offers 531 democracy indicators. \citet{Busch2017} found that land-use policies consistently reduce deforestation, while general governance indicators show inconsistent effects.
+
+\subsection{Multi-Scale Driver Integration}
+
+\citet{Curtis2018} classified global forest loss drivers: commodity agriculture (27\%), forestry (26\%), shifting agriculture (24\%), wildfire (23\%). \citet{Armenteras2019} showed drivers are scale- and context-dependent. \citet{Pendrill2019} found 29--39\% of deforestation emissions are trade-driven. \citet{Hosonuma2012} provided a comprehensive proximate driver assessment across developing countries. \citet{Ordway2017} quantified commodity crop expansion risk in sub-Saharan Africa.
+
+% =============================================================================
+\section{Model Interpretability}
+% =============================================================================
+
+SHAP \citep{Lundberg2017} provides a unified interpretability framework based on Shapley values. \citet{Lundberg2020} extended this efficiently to tree-based models. The XGBoost + SHAP combination enables identification of nonlinear relationships and threshold effects between drivers and deforestation. \citet{Molnar2022} provides a comprehensive guide to interpretable ML methods. Systematic ablation---removing feature groups and measuring performance changes---quantifies marginal contributions of each driver dimension, complementing SHAP explanations.
+
+% =============================================================================
+\section{Spatial and Temporal Validation}
+% =============================================================================
+
+\citet{Ploton2020} demonstrated that random cross-validation produces dramatically inflated performance estimates for ecological models: a random forest for biomass prediction showed no skill under spatial CV. \citet{Roberts2017} established the framework for block cross-validation, recommending its use whenever spatial dependence exists.
+
+\citet{Wadoux2021} argued that spatial CV may overcorrect in some contexts. \citet{Meyer2021} introduced the ``area of applicability'' concept for quantifying where models can be trusted. \citet{Meyer2024} provide a comprehensive review of challenges in data-driven geospatial modeling.
+
+Our project employs both spatial blocking (geographic grid cells) and temporal out-of-sample validation (train $\leq$2020, validation 2021, test 2022).
+
+% =============================================================================
+\section{Emerging Approaches}
+% =============================================================================
+
+\subsection{Foundation Models}
+
+Prithvi-EO-2.0 \citep{Jakubik2024}, from NASA and IBM, is a 600M-parameter multi-temporal foundation model trained on 4.2M HLS samples. \citet{Mai2023} discuss opportunities and challenges for foundation models in geospatial AI. GEO-Bench \citep{Lacoste2024} provides standardized evaluation benchmarks.
+
+\subsection{Scalable Risk Mapping}
+
+ForestCast \citep{ForestCast2025} demonstrates that vision transformers with ``pure satellite'' inputs can match methods requiring specialized features, suggesting that satellite imagery implicitly captures socioeconomic drivers at sufficient spatial resolution.
+
+% =============================================================================
+\section{Gaps and Research Opportunities}
+% =============================================================================
+
+This review identifies key gaps that our project addresses:
+
+\begin{enumerate}
+    \item \textbf{Geographic bias:} Most studies focus on the Amazon or SE Asia. The Congo Basin's distinct driver profile (smallholder-dominated, conflict-affected) is underrepresented.
+    \item \textbf{Limited feature dimensionality:} Few models integrate the full driver spectrum---satellite, climate, socioeconomic, demographic, conflict, governance, and cultural variables.
+    \item \textbf{Temporal scale analysis:} No study systematically examines which temporal scales matter for which drivers.
+    \item \textbf{Rigorous validation:} Many models lack spatial cross-validation and temporal out-of-sample testing.
+    \item \textbf{Interpretability gap:} Deep learning models offer limited driver insight; XGBoost + SHAP provides a complementary interpretable approach.
+\end{enumerate}
+
+% =============================================================================
+\bibliography{references}
+% =============================================================================
+
+\end{document}
