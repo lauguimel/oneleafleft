@@ -1,5 +1,6 @@
 # Data (large files) — only top-level data/
 /data/
+/data_validation/
 *.tif
 *.tiff
 *.hdf5
@@ -32,15 +33,19 @@ env/
 .ipynb_checkpoints/
 
 # ML artifacts
+/models/
 mlruns/
 ray_results/
 wandb/
 *.ckpt
 *.pth
+*.joblib
+
+# Results (reproducible)
+/results/
 
 # OS
 Thumbs.db
-.DS_Store
 
 # Secrets
 .env

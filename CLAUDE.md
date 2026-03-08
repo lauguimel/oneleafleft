@@ -7,17 +7,24 @@ Multi-dimensional deforestation risk prediction for the Congo Basin. Combines sa
 ## Repository Structure
 
 ```
+├── app/               # Streamlit web demo
+├── biblio/            # Literature review, references.bib
 ├── configs/           # Hydra/YAML experiment configs
 ├── data/              # .gitignored — raw GeoTIFFs, extracted features
+│   ├── train_test/    # Train/test splits
+│   ├── val/           # Validation splits
+│   └── app/           # Precomputed data for Streamlit app
+├── models/            # Saved model artifacts (.gitignored)
 ├── notebooks/         # Marimo notebooks (.py)
-├── scripts/           # CLI scripts (train.py, extract.py)
+├── results/           # Plots, metrics, reports (.gitignored)
+├── scripts/           # CLI scripts (extraction, training, ablation)
 ├── src/
 │   ├── data/          # GEE extraction, data loading, sampling
 │   ├── features/      # Temporal profiles, feature engineering
 │   ├── models/        # XGBoost, MLP, training logic
 │   ├── evaluation/    # Metrics, SHAP, spatial analysis
 │   └── inference/     # Prediction pipeline, map generation
-└── tests/
+└── tests/             # Unit and integration tests
 ```
 
 ## Tech Stack
@@ -49,6 +56,12 @@ Sources (33 total): Hansen GFC, Sentinel-2, SRTM, CHIRPS daily, ERA5-Land daily,
 - Init helper: `src/data/gee_utils.py` → `init_gee()`
 - Hansen GFC: use `UMD/hansen/global_forest_change_2024_v1_12` (v1.12, data through 2024)
 
+## Environment
+
+```bash
+conda activate deforest
+```
+
 ## Commands
 
 ```bash
@@ -56,12 +69,53 @@ Sources (33 total): Hansen GFC, Sentinel-2, SRTM, CHIRPS daily, ERA5-Land daily,
 conda env create -f environment.yml
 conda activate deforest
 
-# Run Marimo notebook
-marimo edit notebooks/01_eda.py
+# --- Data extraction & enrichment ---
+conda run -n deforest python scripts/scale_up_extraction.py   # Full 250K extraction via GEE
+conda run -n deforest python scripts/add_sources.py           # Add new GEE sources to existing data
+conda run -n deforest python scripts/add_spatial_features.py  # Compute spatial features
+conda run -n deforest python scripts/add_tabular_features.py  # Compute tabular features
+conda run -n deforest python scripts/add_buffers.py           # Add buffer-based features
+conda run -n deforest python scripts/enrich_wdpa.py           # Enrich WDPA protected areas
+conda run -n deforest python scripts/patch_worldpop.py        # Patch WorldPop data
 
-# Run as app
-marimo run notebooks/app_demo.py
+# --- Dataset building ---
+conda run -n deforest python scripts/build_traintest.py       # Build train/test split
+conda run -n deforest python scripts/build_val.py             # Build validation split
+
+# --- Training ---
+conda run -n deforest python scripts/train_core_model.py      # Train main XGBoost model
+conda run -n deforest python scripts/tune_xgboost.py          # Hyperparameter tuning (Optuna)
+conda run -n deforest python scripts/train_xgboost.py         # Train XGBoost baseline
+conda run -n deforest python scripts/train_deep_learning.py   # Train DL model
+
+# --- Evaluation & ablation ---
+conda run -n deforest python scripts/shap_deep_dive.py        # SHAP interpretability analysis
+conda run -n deforest python scripts/ablation_study.py        # Full ablation study
+conda run -n deforest python scripts/temporal_ablation.py     # Temporal scale ablation
+conda run -n deforest python scripts/spatial_ablation.py      # Spatial resolution ablation
+conda run -n deforest python scripts/test_no_tautology.py     # Verify no data leakage
+conda run -n deforest python scripts/improve_prauc.py         # PR-AUC optimization
+
+# --- Export & app ---
+conda run -n deforest python scripts/export_predictions.py    # Export prediction maps
+conda run -n deforest streamlit run app/app.py                # Run Streamlit demo
+
+# --- Notebooks ---
+marimo edit notebooks/01_eda.py
+marimo edit notebooks/02_gee_extraction.py
 ```
+
+## Out of Scope
+
+- Do not modify files in data/ directly (regenerate via scripts)
+- Do not commit data/ or models/ directories
+- Do not install packages outside conda environment `deforest`
+- Do not use Jupyter notebooks — use Marimo (.py format)
+
+## Language
+
+- Communication: French
+- Code, commits, technical docs: English
 
 ## Legacy Project
 
