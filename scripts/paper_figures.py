@@ -13,7 +13,7 @@ Color system (coherent across all figures):
   BLUE_MID   #2563EB  — primary bars / lines
   CORAL      #F43F5E  — deforested events / PR-AUC accent
   SLATE      #64748B  — neutral / baselines
-  CMAP       Blues    — sequential gradient in Fig 2B and Fig 3B
+  CMAP       Blues    — sequential gradient in Fig 2C and Fig 3B
 """
 
 import json
@@ -62,7 +62,7 @@ BLUE_DARK = "#1E40AF"   # deepest blue — "best" bar / highlight
 BLUE_MID  = "#2563EB"   # primary blue — main lines and bars
 CORAL     = "#F43F5E"   # coral/rose  — deforestation events, PR-AUC
 SLATE     = "#64748B"   # grey-slate  — baselines, neutral
-CMAP      = plt.cm.Blues  # sequential gradient — Fig 2B spatial + Fig 3B SHAP
+CMAP      = plt.cm.Blues  # sequential gradient — Fig 2C spatial + Fig 3B SHAP
 
 
 def _blues(values, lo=0.30, hi=0.90):
@@ -99,7 +99,7 @@ def make_fig1():
     neg_sub = neg.iloc[rng.choice(len(neg), size=min(60_000, len(neg)), replace=False)]
 
     ax.scatter(neg_sub["lon"], neg_sub["lat"],
-               s=2, c="#94A3B8", alpha=0.18, linewidths=0,
+               s=2, c="#2d6a4f", alpha=0.20, linewidths=0,
                rasterized=True, label="No loss (sample)")
     ax.scatter(pos["lon"], pos["lat"],
                s=10, c=CORAL, alpha=0.85, linewidths=0,
@@ -150,8 +150,8 @@ def make_fig1():
 
 # ===========================================================================
 # FIG 2 — Triple ablation
-# Layout: Row 0 = A (left) + B (right)   — bar charts
-#         Row 1 = C (centered, 60% width) — temporal line
+# Layout: Row 0 = A (left) + B (right)   — bar chart + temporal line
+#         Row 1 = C (centered, 60% width) — spatial bars
 # ===========================================================================
 def make_fig2():
     print("Fig 2: triple ablation...")
@@ -245,47 +245,46 @@ def make_fig2():
     ax_a.legend(handles=leg_handles, fontsize=11, frameon=False,
                 loc="upper right")
 
-    # ---- Panel B (horizontal bars, Blues gradient) ----
-    y_b = np.arange(len(df_buf))
-    colors_b = _blues(df_buf["prauc"].values)
-    ax_b.barh(y_b, df_buf["prauc"], color=colors_b, alpha=0.90, height=0.60)
-    ax_b.set_yticks(y_b)
-    ax_b.set_yticklabels(df_buf["label"], fontsize=12)
-    ax_b.set_xlabel("Val PR-AUC")
-    ax_b.set_title("(b) Buffer radius combination", loc="left",
-                   fontsize=14, fontweight="bold")
-    max_b = df_buf["prauc"].max()
-    ax_b.set_xlim(0, max_b * 1.32)
-    for i, row in df_buf.iterrows():
-        ax_b.text(row["prauc"] + max_b * 0.016, i,
-                  f"AUC = {row['auc']:.3f}",
-                  va="center", fontsize=11, color="#1E293B")
-
-    # ---- Panel C (temporal, centered) ----
-    ax_c = fig.add_axes([0.22, 0.06, 0.52, 0.30])
-    ax_c.plot(df_win["window"], df_win["prauc"] * 100, "o-",
+    # ---- Panel B (temporal line, top-right) ----
+    ax_b.plot(df_win["window"], df_win["prauc"] * 100, "o-",
               color=BLUE_MID, linewidth=2.5, markersize=9,
               markerfacecolor="white", markeredgecolor=BLUE_MID,
               markeredgewidth=2)
-    ax_c.set_xlabel("Window depth (lag years)")
-    ax_c.set_ylabel("Val PR-AUC (×10⁻²)")
-    ax_c.set_xticks(df_win["window"].tolist())
-    # y-axis: display as e.g. 7.50, 7.65, 7.80
+    ax_b.set_xlabel("Window depth (lag years)")
+    ax_b.set_ylabel("Val PR-AUC (×10⁻²)")
+    ax_b.set_xticks(df_win["window"].tolist())
     y_vals = df_win["prauc"].values * 100
     y_lo = y_vals.min() - 0.05
     y_hi = y_vals.max() + 0.05
-    ax_c.set_ylim(y_lo, y_hi)
-    ax_c.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
-    ax_c.set_title("(c) Temporal window depth", loc="left",
+    ax_b.set_ylim(y_lo, y_hi)
+    ax_b.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+    ax_b.set_title("(b) Temporal window depth", loc="left",
                    fontsize=14, fontweight="bold")
+
+    # ---- Panel C (spatial horizontal bars, centered bottom) ----
+    ax_c = fig.add_axes([0.22, 0.06, 0.52, 0.30])
+    y_c = np.arange(len(df_buf))
+    colors_c = _blues(df_buf["prauc"].values)
+    ax_c.barh(y_c, df_buf["prauc"], color=colors_c, alpha=0.90, height=0.60)
+    ax_c.set_yticks(y_c)
+    ax_c.set_yticklabels(df_buf["label"], fontsize=12)
+    ax_c.set_xlabel("Val PR-AUC")
+    ax_c.set_title("(c) Buffer radius combination", loc="left",
+                   fontsize=14, fontweight="bold")
+    max_c = df_buf["prauc"].max()
+    ax_c.set_xlim(0, max_c * 1.32)
+    for i, row in df_buf.iterrows():
+        ax_c.text(row["prauc"] + max_c * 0.016, i,
+                  f"AUC = {row['auc']:.3f}",
+                  va="center", fontsize=11, color="#1E293B")
 
     fig.savefig(PAPER_FIG / "fig2_ablation.pdf")
     fig.savefig(PAPER_FIG / "fig2_ablation.png", dpi=300)
     plt.close(fig)
 
     df_dim.to_csv(DATA_DIR / "fig2a_dimensional_ablation.csv", index=False)
-    df_buf.to_csv(DATA_DIR / "fig2b_spatial_ablation.csv",     index=False)
-    df_win.to_csv(DATA_DIR / "fig2c_temporal_ablation.csv",    index=False)
+    df_win.to_csv(DATA_DIR / "fig2b_temporal_ablation.csv",    index=False)
+    df_buf.to_csv(DATA_DIR / "fig2c_spatial_ablation.csv",     index=False)
     print("  -> fig2_ablation.pdf")
 
 
