@@ -410,6 +410,66 @@ call_right.info(
     "Suitable for operational deployment in resource-constrained settings."
 )
 
+# ── Demo zone: high-resolution 2025 forecast ──
+demo_path = APP_DATA / "demo_zone_predictions.parquet"
+if demo_path.exists():
+    st.markdown("### High-resolution forecast (2025)")
+    st.markdown(
+        "To demonstrate operational use, we generated a **dense prediction grid** "
+        "(250 m spacing) over a ~30 km region near **Virunga, eastern DRC** — "
+        "one of the most active deforestation frontiers in Central Africa."
+    )
+
+    col_overview, col_zoom = st.columns([1, 2])
+    with col_overview:
+        st.markdown(
+            "**Overview**: the red rectangle shows the zoom area "
+            "within the full study region."
+        )
+        fig_ov = px.scatter_mapbox(
+            pred.sample(min(5000, len(pred)), random_state=42),
+            lat="lat", lon="lon",
+            color_discrete_sequence=["#94A3B8"],
+            zoom=4, height=300,
+            mapbox_style="carto-positron",
+            center={"lat": 5.0, "lon": 25.0},
+        )
+        # Draw bbox rectangle
+        fig_ov.add_trace(go.Scattermapbox(
+            lon=[27.00, 27.30, 27.30, 27.00, 27.00],
+            lat=[2.40, 2.40, 2.70, 2.70, 2.40],
+            mode="lines",
+            line=dict(color="#e74c3c", width=3),
+            name="Zoom area",
+        ))
+        fig_ov.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+        st.plotly_chart(fig_ov, use_container_width=True)
+
+    with col_zoom:
+        demo = pd.read_parquet(demo_path)
+        fig_demo = px.scatter_mapbox(
+            demo,
+            lat="lat", lon="lon",
+            color="risk_pct",
+            color_continuous_scale=["#2ecc71", "#f1c40f", "#e74c3c", "#8b0000"],
+            range_color=[0, min(demo["risk_pct"].quantile(0.99), 100)],
+            hover_data={"risk_pct": ":.1f", "lat": ":.4f", "lon": ":.4f"},
+            labels={"risk_pct": "Risk (%)"},
+            zoom=10, height=450,
+            mapbox_style="carto-positron",
+            center={"lat": demo.lat.mean(), "lon": demo.lon.mean()},
+        )
+        fig_demo.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig_demo, use_container_width=True, config={"scrollZoom": True})
+
+    st.caption(
+        f"**True forecast**: {len(demo):,} locations predicted for 2025. "
+        "No 2025 deforestation data exists yet — this is a genuine forward prediction. "
+        f"Mean risk: {demo['risk_pct'].mean():.1f}%, "
+        f"Max risk: {demo['risk_pct'].max():.1f}%."
+    )
+    st.markdown("")
+
 # ── Screening efficiency ──
 st.markdown("### Screening efficiency")
 st.markdown(

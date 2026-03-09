@@ -424,10 +424,93 @@ def make_fig3():
 
 
 # ===========================================================================
+# FIG 4 — Demo zone: high-resolution 2025 forecast (optional)
+# ===========================================================================
+def make_fig4():
+    demo_path = ROOT / "data" / "app" / "demo_zone_predictions.parquet"
+    if not demo_path.exists():
+        print("Fig 4: SKIPPED (demo_zone_predictions.parquet not found)")
+        return
+
+    print("Fig 4: demo zone forecast...")
+
+    demo = pd.read_parquet(demo_path)
+    pred = pd.read_parquet(ROOT / "data" / "app" / "predictions_val.parquet")
+    world = gpd.read_file(ROOT / "data" / "boundaries" / "ne_110m_countries.gpkg")
+
+    # Bbox of demo zone
+    bbox = [27.00, 27.30, 2.40, 2.70]  # lon_min, lon_max, lat_min, lat_max
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+
+    # ---- Panel A: overview with bbox rectangle ----
+    ax = axes[0]
+    lon_min = pred["lon"].min() - 0.5
+    lon_max = pred["lon"].max() + 0.5
+    lat_min = pred["lat"].min() - 0.5
+    lat_max = pred["lat"].max() + 0.5
+
+    world.clip([lon_min, lat_min, lon_max, lat_max]).plot(
+        ax=ax, facecolor="#E2E8F0", edgecolor="#94A3B8", linewidth=0.6
+    )
+    rng = np.random.default_rng(42)
+    sub = pred.iloc[rng.choice(len(pred), size=min(30_000, len(pred)), replace=False)]
+    ax.scatter(sub["lon"], sub["lat"],
+               s=1, c=sub["proba"], cmap="YlOrRd", alpha=0.4,
+               vmin=0, vmax=1, linewidths=0, rasterized=True)
+
+    # Draw bbox rectangle
+    from matplotlib.patches import Rectangle
+    rect = Rectangle(
+        (bbox[0], bbox[2]), bbox[1] - bbox[0], bbox[3] - bbox[2],
+        linewidth=2.5, edgecolor=CORAL, facecolor="none", zorder=10
+    )
+    ax.add_patch(rect)
+    ax.annotate("Zoom area", xy=(bbox[0], bbox[3]),
+                xytext=(bbox[0] - 2.5, bbox[3] + 1.5),
+                fontsize=12, color=CORAL, fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color=CORAL, lw=1.5))
+
+    ax.set_xlim(lon_min, lon_max)
+    ax.set_ylim(lat_min, lat_max)
+    ax.set_xlabel("Longitude (°E)")
+    ax.set_ylabel("Latitude (°N)")
+    ax.set_title("(a) Study area with zoom region", loc="left",
+                 fontsize=14, fontweight="bold")
+
+    # ---- Panel B: high-res zoom ----
+    ax = axes[1]
+    sc = ax.scatter(demo["lon"], demo["lat"],
+                    c=demo["proba"], cmap="RdYlGn_r",
+                    s=2.5, vmin=0, vmax=demo["proba"].quantile(0.99),
+                    alpha=0.9, linewidths=0, rasterized=True, marker="s")
+    cb = plt.colorbar(sc, ax=ax, fraction=0.04, pad=0.02)
+    cb.set_label("Predicted risk (2025)", fontsize=12)
+    cb.ax.tick_params(labelsize=10)
+
+    ax.set_xlim(bbox[0], bbox[1])
+    ax.set_ylim(bbox[2], bbox[3])
+    ax.set_xlabel("Longitude (°E)")
+    ax.set_ylabel("Latitude (°N)")
+    ax.set_title("(b) High-resolution 2025 forecast", loc="left",
+                 fontsize=14, fontweight="bold")
+
+    plt.tight_layout(w_pad=2.5)
+    fig.savefig(PAPER_FIG / "fig4_demo_zone.pdf")
+    fig.savefig(PAPER_FIG / "fig4_demo_zone.png", dpi=300)
+    plt.close(fig)
+
+    demo[["lon", "lat", "proba"]].to_csv(
+        DATA_DIR / "fig4_demo_zone.csv", index=False)
+    print("  -> fig4_demo_zone.pdf")
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 if __name__ == "__main__":
     make_fig1()
     make_fig2()
     make_fig3()
+    make_fig4()
     print("All figures saved to paper/figures/")

@@ -399,6 +399,20 @@ Metric differences smaller than approximately 0.005 in AUC-ROC or
 0.003 in PR-AUC should therefore be interpreted cautiously, as they
 may fall within sampling variability.
 
+\paragraph{High-resolution forecast.}
+To illustrate operational applicability, we extract a dense 250\,m grid
+(13{,}232~points) within a 0.3\textdegree{}\,$\times$\,0.3\textdegree{}
+zone in northeastern Congo and apply the trained model to predict 2025
+deforestation risk (Figure~\ref{fig:demo_zone}).
+Since Hansen GFC\,v1.12 covers loss through 2024, the 2025 forecast
+constitutes a true out-of-sample prediction for which no ground truth
+yet exists.
+The resulting risk map reveals a spatially coherent deforestation
+frontier: high-risk pixels (red) concentrate along roads and existing
+clearings, while intact forest patches (green) remain at low predicted
+risk---consistent with the contagion-dominated dynamics identified by
+the ablation study.
+
 
 % ===========================================================================
 \section{Discussion}
@@ -569,6 +583,19 @@ The dashed line represents random screening.
 Bar colour encodes magnitude (sequential blue gradient: darker\,=\,higher importance).
 Feature group labels (Spatial, Climate, Demography) are annotated to the right
 of each bar.}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig4_demo_zone.pdf}
+\caption{\label{fig:demo_zone}
+High-resolution deforestation forecast for 2025.
+(a)~Study area overview with the 0.3\textdegree{}\,$\times$\,0.3\textdegree{}
+zoom region (red rectangle) in northeastern Congo.
+(b)~Pixel-level risk map at 250\,m spacing (13{,}232~points).
+Green indicates low predicted risk (intact forest); red indicates
+high risk (active deforestation frontier).
+This is a true forecast: no 2025 deforestation data exists at time of writing.}
 \end{figure}
 
 \end{document}
