@@ -7,10 +7,16 @@ Produces:
   paper/figures/fig3_lift_shap.{pdf,png}    + paper/figures/data/fig3_*.csv
 
 Run: conda run -n deforest python scripts/paper_figures.py
+
+Color system (coherent across all figures):
+  BLUE_DARK  #1E40AF  — highlights / best value
+  BLUE_MID   #2563EB  — primary bars / lines
+  CORAL      #F43F5E  — deforested events / PR-AUC accent
+  SLATE      #64748B  — neutral / baselines
+  CMAP       Blues    — sequential gradient in Fig 2B and Fig 3B
 """
 
 import json
-import os
 from pathlib import Path
 
 import geopandas as gpd
@@ -29,12 +35,12 @@ from matplotlib.patches import Patch
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent
 PAPER_FIG = ROOT / "paper" / "figures"
-DATA_DIR = ROOT / "paper" / "figures" / "data"
+DATA_DIR  = ROOT / "paper" / "figures" / "data"
 PAPER_FIG.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Style — modern palette, larger fonts
+# Style — coherent palette, readable fonts
 # ---------------------------------------------------------------------------
 mpl.rcParams.update({
     "font.family":       "DejaVu Sans",
@@ -43,7 +49,7 @@ mpl.rcParams.update({
     "axes.titlesize":    14,
     "xtick.labelsize":   11,
     "ytick.labelsize":   11,
-    "legend.fontsize":   11,
+    "legend.fontsize":   12,
     "figure.dpi":        150,
     "savefig.dpi":       300,
     "savefig.bbox":      "tight",
@@ -51,22 +57,22 @@ mpl.rcParams.update({
     "axes.spines.right": False,
 })
 
-# Modern color palette
-PALETTE = {
-    "indigo":  "#4F46E5",   # deep blue — primary bars
-    "teal":    "#0891B2",   # vibrant teal — spatial
-    "coral":   "#F43F5E",   # coral/rose — PR-AUC line + deforested dots
-    "amber":   "#F59E0B",   # warm amber — encoding markers
-    "emerald": "#10B981",   # green — infra/pop group
-    "violet":  "#7C3AED",   # violet — accent
-    "slate":   "#64748B",   # grey — baselines, neutral
-    "red":     "#EF4444",   # bright red — deforested points
-    "bg":      "#F1F5F9",   # very light blue-grey — panel background hint
-}
+# Coherent color system used in ALL three figures
+BLUE_DARK = "#1E40AF"   # deepest blue — "best" bar / highlight
+BLUE_MID  = "#2563EB"   # primary blue — main lines and bars
+CORAL     = "#F43F5E"   # coral/rose  — deforestation events, PR-AUC
+SLATE     = "#64748B"   # grey-slate  — baselines, neutral
+CMAP      = plt.cm.Blues  # sequential gradient — Fig 2B spatial + Fig 3B SHAP
+
+
+def _blues(values, lo=0.30, hi=0.90):
+    """Map an array of values to Blues colormap, avoiding the very pale end."""
+    norm = Normalize(vmin=min(values), vmax=max(values))
+    return [CMAP(norm(v) * (hi - lo) + lo) for v in values]
 
 
 # ===========================================================================
-# FIG 1 — Study area (scatter) + Predicted risk map
+# FIG 1 — Study area scatter + Predicted risk map
 # ===========================================================================
 def make_fig1():
     print("Fig 1: study area + risk map...")
@@ -74,7 +80,6 @@ def make_fig1():
     pred = pd.read_parquet(ROOT / "data" / "app" / "predictions_val.parquet")
     pred = pred[["lon", "lat", "target", "proba"]].copy()
 
-    # Country boundaries
     world = gpd.read_file(ROOT / "data" / "boundaries" / "ne_110m_countries.gpkg")
     lon_min = pred["lon"].min() - 0.5
     lon_max = pred["lon"].max() + 0.5
@@ -83,60 +88,49 @@ def make_fig1():
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 5))
 
-    # ---- Panel A: scatter of ALL points, red overlay for positives ----
+    # ---- Panel A: scatter — grey background, coral deforested ----
     ax = axes[0]
     world.clip([lon_min, lat_min, lon_max, lat_max]).plot(
         ax=ax, facecolor="#E2E8F0", edgecolor="#94A3B8", linewidth=0.6
     )
+    rng = np.random.default_rng(42)
     neg = pred[pred["target"] == 0]
     pos = pred[pred["target"] == 1]
+    neg_sub = neg.iloc[rng.choice(len(neg), size=min(60_000, len(neg)), replace=False)]
 
-    # Subsample negatives for speed (keep all positives)
-    rng = np.random.default_rng(42)
-    neg_idx = rng.choice(len(neg), size=min(60000, len(neg)), replace=False)
-    neg_sub = neg.iloc[neg_idx]
+    ax.scatter(neg_sub["lon"], neg_sub["lat"],
+               s=2, c="#94A3B8", alpha=0.18, linewidths=0,
+               rasterized=True, label="No loss (sample)")
+    ax.scatter(pos["lon"], pos["lat"],
+               s=10, c=CORAL, alpha=0.85, linewidths=0,
+               rasterized=True, label="Deforested 2024", zorder=5)
 
-    ax.scatter(
-        neg_sub["lon"], neg_sub["lat"],
-        s=2, c="#94A3B8", alpha=0.20, linewidths=0,
-        rasterized=True, label="No loss (sample)",
-    )
-    ax.scatter(
-        pos["lon"], pos["lat"],
-        s=10, c=PALETTE["coral"], alpha=0.85, linewidths=0,
-        rasterized=True, label="Deforested 2024",
-        zorder=5,
-    )
     ax.set_xlim(lon_min, lon_max)
     ax.set_ylim(lat_min, lat_max)
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
     ax.set_title("(a) Validation sample (2024)", loc="left",
                  fontsize=14, fontweight="bold")
-    ax.legend(markerscale=2.5, frameon=False, fontsize=10,
-              loc="upper left", handletextpad=0.4)
+    leg = ax.legend(markerscale=2.5, frameon=True, fontsize=12,
+                    loc="upper left", handletextpad=0.4,
+                    facecolor="white", edgecolor="#CBD5E1", framealpha=0.92)
 
     # ---- Panel B: predicted risk map ----
     ax = axes[1]
-    idx_b = rng.choice(len(pred), size=min(50000, len(pred)), replace=False)
-    sub = pred.iloc[idx_b].sort_values("proba")   # low risk first → high risk on top
+    idx_b = rng.choice(len(pred), size=min(50_000, len(pred)), replace=False)
+    sub = pred.iloc[idx_b].sort_values("proba")
 
     world.clip([lon_min, lat_min, lon_max, lat_max]).plot(
         ax=ax, facecolor="#E2E8F0", edgecolor="#94A3B8", linewidth=0.6
     )
-    sc = ax.scatter(
-        sub["lon"], sub["lat"],
-        c=sub["proba"],
-        cmap="YlOrRd",
-        s=2,
-        vmin=0, vmax=1,
-        alpha=0.75,
-        linewidths=0,
-        rasterized=True,
-    )
-    cb = plt.colorbar(sc, ax=ax, label="Predicted risk", fraction=0.04, pad=0.02)
+    sc = ax.scatter(sub["lon"], sub["lat"],
+                    c=sub["proba"], cmap="YlOrRd",
+                    s=2, vmin=0, vmax=1, alpha=0.75,
+                    linewidths=0, rasterized=True)
+    cb = plt.colorbar(sc, ax=ax, fraction=0.04, pad=0.02)
+    cb.set_label("Predicted risk", fontsize=12)
     cb.ax.tick_params(labelsize=10)
-    cb.set_label("Predicted risk", fontsize=11)
+
     ax.set_xlim(lon_min, lon_max)
     ax.set_ylim(lat_min, lat_max)
     ax.set_xlabel("Longitude (°E)")
@@ -150,18 +144,18 @@ def make_fig1():
     plt.close(fig)
 
     pred[["lon", "lat", "target", "proba"]].to_csv(
-        DATA_DIR / "fig1_predictions.csv", index=False
-    )
-    print("  -> fig1_study_area.pdf + data/fig1_predictions.csv")
+        DATA_DIR / "fig1_predictions.csv", index=False)
+    print("  -> fig1_study_area.pdf")
 
 
 # ===========================================================================
-# FIG 2 — Triple ablation  (layout: 2 rows — A+C top, B full-width bottom)
+# FIG 2 — Triple ablation
+# Layout: Row 0 = A (left) + B (right)   — bar charts
+#         Row 1 = C (centered, 60% width) — temporal line
 # ===========================================================================
 def make_fig2():
     print("Fig 2: triple ablation...")
 
-    # ---- Load data ----
     with open(ROOT / "data" / "ablation_results_20260307.json") as f:
         abl = json.load(f)
     with open(ROOT / "data" / "spatial_ablation_20260307.json") as f:
@@ -197,9 +191,9 @@ def make_fig2():
     # ---- Panel B data ----
     buf_experiments = [e for e in spatial if e.get("experiment") == "buffer_radius"]
     single_buf = [e for e in buf_experiments if len(e["radii"]) == 1]
-    key_pairs = ["150m+500m", "150m+1500m", "all_radii"]
-    pair_buf = [e for e in buf_experiments if e.get("label") in key_pairs]
-    buf_show = single_buf + pair_buf
+    key_pairs  = ["150m+500m", "150m+1500m", "all_radii"]
+    pair_buf   = [e for e in buf_experiments if e.get("label") in key_pairs]
+    buf_show   = single_buf + pair_buf
 
     def _buf_label(s):
         s = s.replace("only_", "").replace("all_radii", "All radii")
@@ -210,128 +204,89 @@ def make_fig2():
         "label": _buf_label(e["label"]),
         "auc":   e["val_auc_roc"],
         "prauc": e["val_pr_auc"],
-    } for e in buf_show])
-    df_buf = df_buf.sort_values("prauc", ascending=True).reset_index(drop=True)
+    } for e in buf_show]).sort_values("prauc", ascending=True).reset_index(drop=True)
 
     # ---- Panel C data ----
     win_exp = [e for e in temporal if e.get("experiment") == "window_depth"]
     df_win = pd.DataFrame([{
         "window": e["window"],
-        "auc":    e["val_auc_roc"],
         "prauc":  e["val_pr_auc"],
     } for e in win_exp]).sort_values("window")
 
-    enc_exp = [e for e in temporal if e.get("experiment") == "encoding_type"]
-    enc_labels = {
-        "lags_only":      "Lags only",
-        "lags_summaries": "Lags+summaries",
-        "lags_deltas":    "Lags+deltas",
-        "full":           "Full encoding",
-    }
-    df_enc = pd.DataFrame([{
-        "label": enc_labels.get(e["encoding"], e["encoding"]),
-        "auc":   e["val_auc_roc"],
-        "prauc": e["val_pr_auc"],
-        "n":     e["n_features"],
-    } for e in enc_exp])
-
-    # ---- Layout: 2 rows ----
-    # Row 0: A (left) + C (right)
-    # Row 1: B (full width)
-    fig = plt.figure(figsize=(13, 8))
-    gs = gridspec.GridSpec(
-        2, 2,
-        height_ratios=[1, 1.15],
-        hspace=0.52,
-        wspace=0.38,
-    )
-
-    # ---- Panel A ----
-    ax_a = fig.add_subplot(gs[0, 0])
+    # ---- Layout: explicit axes positions to avoid twin-axis overlap ----
+    # [left, bottom, width, height] in figure fraction
+    fig = plt.figure(figsize=(14, 9))
+    ax_a = fig.add_axes([0.06, 0.48, 0.34, 0.44])   # Panel A (left)
+    ax_b = fig.add_axes([0.58, 0.48, 0.37, 0.44])   # Panel B (right, gap from A twin axis)
     x_a = np.arange(len(df_dim))
-    ax_a.bar(x_a, df_dim["auc"], color=PALETTE["indigo"], alpha=0.85,
-             width=0.5, label="AUC-ROC")
-    ax_a.axhline(0.5, color=PALETTE["slate"], linewidth=0.9, linestyle=":")
-    ax_a_twin = ax_a.twinx()
-    ax_a_twin.plot(x_a, df_dim["prauc"], "o--", color=PALETTE["coral"],
-                   linewidth=2, markersize=7, label="PR-AUC")
-    ax_a_twin.spines["top"].set_visible(False)
+    ax_a.bar(x_a, df_dim["auc"], color=BLUE_MID, alpha=0.85, width=0.5)
+    ax_a.axhline(0.5, color=SLATE, linewidth=0.9, linestyle=":")
+    ax_a_r = ax_a.twinx()
+    ax_a_r.plot(x_a, df_dim["prauc"], "o--", color=CORAL,
+                linewidth=2, markersize=7)
+    ax_a_r.spines["top"].set_visible(False)
     ax_a.set_xticks(x_a)
     ax_a.set_xticklabels(df_dim["label"], rotation=45, ha="right", fontsize=10)
     ax_a.set_ylim(0.45, 1.02)
     ax_a.set_ylabel("Val AUC-ROC")
-    ax_a_twin.set_ylabel("Val PR-AUC", color=PALETTE["coral"])
-    ax_a_twin.tick_params(axis="y", colors=PALETTE["coral"], labelsize=11)
-    ax_a_twin.set_ylim(0, 0.12)
+    ax_a_r.set_ylabel("Val PR-AUC", color=CORAL)
+    ax_a_r.tick_params(axis="y", colors=CORAL, labelsize=11)
+    ax_a_r.set_ylim(0, 0.12)
     ax_a.set_title("(a) Feature group contribution", loc="left",
                    fontsize=14, fontweight="bold")
-    h1, l1 = ax_a.get_legend_handles_labels()
-    h2, l2 = ax_a_twin.get_legend_handles_labels()
-    ax_a.legend(h1 + h2, l1 + l2, fontsize=10, frameon=False, loc="lower right")
-
-    # ---- Panel C (top right) ----
-    ax_c = fig.add_subplot(gs[0, 1])
-    # Scale PR-AUC × 100 for readability, label axis as ×10⁻²
-    ax_c.plot(df_win["window"], df_win["prauc"] * 100, "o-",
-              color=PALETTE["indigo"], linewidth=2.2, markersize=8,
-              label="Window depth")
-    ax_c.set_xlabel("Window depth (lag years)")
-    ax_c.set_ylabel("Val PR-AUC (×10⁻²)")
-    ax_c.set_xticks(df_win["window"])
-    y_lo = df_win["prauc"].min() * 100 * 0.995
-    y_hi = df_win["prauc"].max() * 100 * 1.005
-    ax_c.set_ylim(y_lo, y_hi)
-    ax_c.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
-    ax_c.set_title("(c) Temporal window depth", loc="left",
-                   fontsize=14, fontweight="bold")
-
-    # Encoding types as amber squares, positioned at window=4 with slight jitter
-    enc_x_map = {
-        "Lags only": 3.7, "Lags+summaries": 3.85, "Lags+deltas": 4.0, "Full encoding": 4.15
-    }
-    for _, row in df_enc.iterrows():
-        xpos = enc_x_map.get(row["label"], 4.0)
-        ax_c.scatter(xpos, row["prauc"] * 100,
-                     marker="s", s=80, color=PALETTE["amber"],
-                     zorder=5, alpha=0.95)
-    ax_c.scatter([], [], marker="s", s=80, color=PALETTE["amber"],
-                 label="Encoding type")
-    ax_c.legend(fontsize=10, frameon=False, loc="lower right")
-
-    # ---- Panel B (full width, bottom row) ----
-    ax_b = fig.add_subplot(gs[1, :])
-    y_b = np.arange(len(df_buf))
-    # Color: gradient teal, highlight "All radii" with a distinct color
-    bar_colors = [
-        PALETTE["indigo"] if "All" in row["label"] else PALETTE["teal"]
-        for _, row in df_buf.iterrows()
+    # Legend at NE
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch as MPatch
+    leg_handles = [
+        MPatch(facecolor=BLUE_MID, label="AUC-ROC"),
+        Line2D([0], [0], color=CORAL, marker="o", linewidth=2,
+               markersize=7, label="PR-AUC"),
     ]
-    bars = ax_b.barh(y_b, df_buf["prauc"], color=bar_colors, alpha=0.85, height=0.55)
+    ax_a.legend(handles=leg_handles, fontsize=11, frameon=False,
+                loc="upper right")
+
+    # ---- Panel B (horizontal bars, Blues gradient) ----
+    y_b = np.arange(len(df_buf))
+    colors_b = _blues(df_buf["prauc"].values)
+    ax_b.barh(y_b, df_buf["prauc"], color=colors_b, alpha=0.90, height=0.60)
     ax_b.set_yticks(y_b)
     ax_b.set_yticklabels(df_buf["label"], fontsize=12)
     ax_b.set_xlabel("Val PR-AUC")
     ax_b.set_title("(b) Buffer radius combination", loc="left",
                    fontsize=14, fontweight="bold")
-    # Annotate AUC values to the right of each bar
-    max_val = df_buf["prauc"].max()
-    ax_b.set_xlim(0, max_val * 1.30)
+    max_b = df_buf["prauc"].max()
+    ax_b.set_xlim(0, max_b * 1.32)
     for i, row in df_buf.iterrows():
-        ax_b.text(
-            row["prauc"] + max_val * 0.015, i,
-            f"AUC = {row['auc']:.3f}",
-            va="center", fontsize=11, color="#1E293B",
-        )
+        ax_b.text(row["prauc"] + max_b * 0.016, i,
+                  f"AUC = {row['auc']:.3f}",
+                  va="center", fontsize=11, color="#1E293B")
+
+    # ---- Panel C (temporal, centered) ----
+    ax_c = fig.add_axes([0.22, 0.06, 0.52, 0.30])
+    ax_c.plot(df_win["window"], df_win["prauc"] * 100, "o-",
+              color=BLUE_MID, linewidth=2.5, markersize=9,
+              markerfacecolor="white", markeredgecolor=BLUE_MID,
+              markeredgewidth=2)
+    ax_c.set_xlabel("Window depth (lag years)")
+    ax_c.set_ylabel("Val PR-AUC (×10⁻²)")
+    ax_c.set_xticks(df_win["window"].tolist())
+    # y-axis: display as e.g. 7.50, 7.65, 7.80
+    y_vals = df_win["prauc"].values * 100
+    y_lo = y_vals.min() - 0.05
+    y_hi = y_vals.max() + 0.05
+    ax_c.set_ylim(y_lo, y_hi)
+    ax_c.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+    ax_c.set_title("(c) Temporal window depth", loc="left",
+                   fontsize=14, fontweight="bold")
 
     fig.savefig(PAPER_FIG / "fig2_ablation.pdf")
     fig.savefig(PAPER_FIG / "fig2_ablation.png", dpi=300)
     plt.close(fig)
 
-    # Export data
     df_dim.to_csv(DATA_DIR / "fig2a_dimensional_ablation.csv", index=False)
-    df_buf.to_csv(DATA_DIR / "fig2b_spatial_ablation.csv", index=False)
-    df_win.to_csv(DATA_DIR / "fig2c_temporal_ablation.csv", index=False)
-    df_enc.to_csv(DATA_DIR / "fig2c_encoding_types.csv", index=False)
-    print("  -> fig2_ablation.pdf + data/fig2*.csv")
+    df_buf.to_csv(DATA_DIR / "fig2b_spatial_ablation.csv",     index=False)
+    df_win.to_csv(DATA_DIR / "fig2c_temporal_ablation.csv",    index=False)
+    print("  -> fig2_ablation.pdf")
 
 
 # ===========================================================================
@@ -340,74 +295,65 @@ def make_fig2():
 def make_fig3():
     print("Fig 3: lift curve + SHAP...")
 
-    pred = pd.read_parquet(ROOT / "data" / "app" / "predictions_val.parquet")
+    pred    = pd.read_parquet(ROOT / "data" / "app" / "predictions_val.parquet")
     shap_df = pd.read_csv(ROOT / "data" / "shap_importance_20260307.csv", index_col=0)
     shap_df.columns = ["mean_abs_shap"]
     shap_df = shap_df.sort_values("mean_abs_shap", ascending=False)
 
-    # ---- Layout: 2 rows ----
-    fig = plt.figure(figsize=(10, 10))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 1.35], hspace=0.48)
+    fig = plt.figure(figsize=(9, 10))
+    gs  = gridspec.GridSpec(2, 1, height_ratios=[1, 1.4], hspace=0.50)
 
-    # ---- Panel A: Concentration curve ----
+    # ---- Panel A: Concentration curve — SQUARE axes ----
     ax_a = fig.add_subplot(gs[0])
     pred_sorted = pred.sort_values("proba", ascending=False).reset_index(drop=True)
-    n = len(pred_sorted)
+    n     = len(pred_sorted)
     n_pos = int(pred_sorted["target"].sum())
-    cum_pos = pred_sorted["target"].cumsum()
+    cum_pos      = pred_sorted["target"].cumsum()
     frac_screened = np.arange(1, n + 1) / n
-    recall = cum_pos / n_pos
+    recall        = cum_pos / n_pos
 
-    ax_a.plot([0, 1], [0, 1], "--", color=PALETTE["slate"],
-              linewidth=1.4, label="Random baseline", zorder=1)
-    ax_a.plot(frac_screened, recall, color=PALETTE["indigo"],
-              linewidth=2.5, label="Model (val 2024)", zorder=2)
+    ax_a.plot([0, 1], [0, 1], "--", color=SLATE, linewidth=1.4,
+              label="Random baseline", zorder=1)
+    ax_a.plot(frac_screened, recall, color=BLUE_MID, linewidth=2.5,
+              label="Model (val 2024)", zorder=2)
 
-    # Key operating points — annotations clearly OFF the curve
+    # Annotations clearly OFF the curve
     annotation_cfg = [
-        # pct,  xytext offset (relative to point),  label anchor
-        (0.01,  (0.10,  0.12)),
-        (0.05,  (0.14,  0.60)),
-        (0.10,  (0.22,  0.82)),
+        #  pct    xytext
+        (0.01,  (0.14, 0.22)),
+        (0.05,  (0.22, 0.58)),
+        (0.10,  (0.38, 0.82)),
     ]
-    for pct, (txt_x, txt_y) in annotation_cfg:
+    for pct, (tx, ty) in annotation_cfg:
         idx = int(pct * n) - 1
-        r = float(recall.iloc[idx])
-        ax_a.scatter([pct], [r], s=60, color=PALETTE["amber"],
-                     zorder=6, linewidths=0)
+        r   = float(recall.iloc[idx])
+        ax_a.scatter([pct], [r], s=70, color=CORAL, zorder=6, linewidths=0)
         ax_a.annotate(
             f"{r:.0%} at {pct:.0%}",
-            xy=(pct, r),
-            xytext=(txt_x, txt_y),
-            arrowprops=dict(
-                arrowstyle="->",
-                color=PALETTE["slate"],
-                lw=1.0,
-                shrinkA=4,
-                shrinkB=4,
-            ),
-            fontsize=12,
-            fontweight="bold",
-            color="#1E293B",
-            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.8),
+            xy=(pct, r), xytext=(tx, ty),
+            arrowprops=dict(arrowstyle="->", color=SLATE,
+                            lw=1.0, shrinkA=5, shrinkB=5),
+            fontsize=12, fontweight="bold", color="#1E293B",
+            bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                      ec="#E2E8F0", alpha=0.9),
         )
 
     ax_a.set_xlim(0, 1)
     ax_a.set_ylim(0, 1)
+    ax_a.set_aspect("equal", adjustable="box")
     ax_a.set_xlabel("Fraction of area screened")
-    ax_a.set_ylabel("Recall (fraction of deforestation captured)")
+    ax_a.set_ylabel("Deforestation captured")
     ax_a.set_title("(a) Concentration curve", loc="left",
                    fontsize=14, fontweight="bold")
     ax_a.legend(frameon=False, fontsize=11, loc="lower right")
 
-    # Export lift data (sampled)
     step = max(1, n // 2000)
     pd.DataFrame({
         "frac_screened": frac_screened[::step],
-        "recall": recall.values[::step],
+        "recall":        recall.values[::step],
     }).to_csv(DATA_DIR / "fig3a_lift_curve.csv", index=False)
 
-    # ---- Panel B: SHAP importance (full width) ----
+    # ---- Panel B: SHAP — Blues gradient + group labels ----
     ax_b = fig.add_subplot(gs[1])
     top15 = shap_df.head(15).copy()
 
@@ -430,11 +376,8 @@ def make_fig3():
     }
     top15.index = [label_map.get(f, f) for f in top15.index]
 
-    # Gradient coloring by SHAP magnitude (YlGnBu from ~0.2 to 1.0)
-    vals = top15["mean_abs_shap"].values
-    norm = Normalize(vmin=0, vmax=vals.max())
-    cmap = plt.cm.YlGnBu
-    bar_colors = [cmap(norm(v) * 0.75 + 0.25) for v in vals]
+    vals        = top15["mean_abs_shap"].values
+    bar_colors  = _blues(vals)    # same Blues gradient as Fig 2B
 
     y = np.arange(len(top15))
     ax_b.barh(y, vals, color=bar_colors, alpha=0.90, height=0.65)
@@ -447,32 +390,29 @@ def make_fig3():
 
     # Group annotations to the right of each bar
     group_map = {
-        "Defo. rate":    ("Spatial",   PALETTE["indigo"]),
-        "Cumul.":        ("Spatial",   PALETTE["indigo"]),
-        "Tree cover":    ("Spatial",   PALETTE["indigo"]),
-        "ET anomaly":    ("Climate",   PALETTE["teal"]),
-        "Temperature":   ("Climate",   PALETTE["teal"]),
-        "Population":    ("Demography", PALETTE["emerald"]),
+        "Defo. rate":  ("Spatial",     BLUE_DARK),
+        "Cumul.":      ("Spatial",     BLUE_DARK),
+        "Tree cover":  ("Spatial",     BLUE_DARK),
+        "ET anomaly":  ("Climate",     SLATE),
+        "Temperature": ("Climate",     SLATE),
+        "Population":  ("Demography",  SLATE),
     }
     max_shap = vals.max()
-    ax_b.set_xlim(0, max_shap * 1.40)
+    ax_b.set_xlim(0, max_shap * 1.45)
     for i, (feat, val) in enumerate(zip(top15.index, vals)):
-        grp_label, grp_color = ("Other", PALETTE["slate"])
+        grp_label, grp_color = "Other", SLATE
         for key, (lbl, col) in group_map.items():
             if key in feat:
                 grp_label, grp_color = lbl, col
                 break
-        ax_b.text(
-            val + max_shap * 0.02, i,
-            grp_label,
-            va="center", fontsize=9.5,
-            color=grp_color, fontweight="bold",
-        )
+        ax_b.text(val + max_shap * 0.025, i,
+                  grp_label, va="center",
+                  fontsize=9.5, color=grp_color, fontweight="semibold")
 
-    # Colorbar
-    sm = ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=max_shap))
+    # Colorbar on the right
+    sm = ScalarMappable(cmap=CMAP, norm=Normalize(vmin=0, vmax=max_shap))
     sm.set_array([])
-    cb = plt.colorbar(sm, ax=ax_b, fraction=0.02, pad=0.01)
+    cb = plt.colorbar(sm, ax=ax_b, fraction=0.025, pad=0.01)
     cb.set_label("Mean |SHAP value|", fontsize=11)
     cb.ax.tick_params(labelsize=10)
 
@@ -481,7 +421,7 @@ def make_fig3():
     fig.savefig(PAPER_FIG / "fig3_lift_shap.pdf")
     fig.savefig(PAPER_FIG / "fig3_lift_shap.png", dpi=300)
     plt.close(fig)
-    print("  -> fig3_lift_shap.pdf + data/fig3*.csv")
+    print("  -> fig3_lift_shap.pdf")
 
 
 # ===========================================================================
