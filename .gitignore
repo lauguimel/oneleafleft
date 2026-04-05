@@ -32,6 +32,17 @@ env/
 # Jupyter (legacy)
 .ipynb_checkpoints/
 
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.fls
+*.fdb_latexmk
+
 # ML artifacts
 /models/
 mlruns/

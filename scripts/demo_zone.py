@@ -316,8 +316,8 @@ def build_features(df_raw: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def predict(df_features: pd.DataFrame) -> pd.DataFrame:
-    """Load model and run inference."""
+def predict(df_features: pd.DataFrame, df_raw: pd.DataFrame) -> pd.DataFrame:
+    """Load model and run inference, merging back with full grid."""
     import json
     import xgboost as xgb
 
@@ -344,16 +344,25 @@ def predict(df_features: pd.DataFrame) -> pd.DataFrame:
     X = df_features[expected_cols].values
     y_proba = model.predict_proba(X)[:, 1]
 
-    out = df_features[["lon", "lat"]].copy()
-    out["proba"] = y_proba
-    out["risk_pct"] = (y_proba * 100).round(2)
+    pred = df_features[["lon", "lat"]].copy()
+    pred["proba"] = y_proba
 
+    # Merge back with full grid — pixels already deforested get proba=0
+    full_grid = df_raw[["lon", "lat", "lossyear"]].drop_duplicates(subset=["lon", "lat"])
+    out = full_grid.merge(pred, on=["lon", "lat"], how="left")
+    out["proba"] = out["proba"].fillna(0.0)
+    out["deforested"] = out["lossyear"].fillna(0).between(1, 24)
+    out = out.drop(columns=["lossyear"])
+    out["risk_pct"] = (out["proba"] * 100).round(2)
+
+    n_filled = out["proba"].eq(0).sum() - pred["proba"].eq(0).sum()
     print(f"\nPrediction stats:")
-    print(f"  N points:  {len(out):,}")
-    print(f"  Mean risk: {y_proba.mean()*100:.2f}%")
-    print(f"  Max risk:  {y_proba.max()*100:.2f}%")
-    print(f"  >1% risk:  {(y_proba>0.01).sum():,} ({(y_proba>0.01).mean()*100:.1f}%)")
-    print(f"  >5% risk:  {(y_proba>0.05).sum():,} ({(y_proba>0.05).mean()*100:.1f}%)")
+    print(f"  N predicted: {len(pred):,}")
+    print(f"  N total:     {len(out):,} ({n_filled:,} already-deforested pixels set to 0)")
+    print(f"  Mean risk: {out['proba'].mean()*100:.2f}%")
+    print(f"  Max risk:  {out['proba'].max()*100:.2f}%")
+    print(f"  >1% risk:  {(out['proba']>0.01).sum():,} ({(out['proba']>0.01).mean()*100:.1f}%)")
+    print(f"  >5% risk:  {(out['proba']>0.05).sum():,} ({(out['proba']>0.05).mean()*100:.1f}%)")
 
     return out
 
@@ -371,6 +380,7 @@ def main():
     if args.predict_only:
         print("Loading pre-built features...")
         df_features = pd.read_parquet(feat_path)
+        df_raw = pd.read_parquet(raw_path)
     else:
         if args.from_raw:
             print(f"Loading raw from {args.from_raw}...")
@@ -391,8 +401,8 @@ def main():
         df_features.to_parquet(feat_path, index=False)
         print(f"Features saved: {feat_path.name}")
 
-    # Inference
-    predictions = predict(df_features)
+    # Inference (merge back with full grid for complete coverage)
+    predictions = predict(df_features, df_raw)
 
     # Export
     out_path = APP_DIR / "demo_zone_predictions.parquet"

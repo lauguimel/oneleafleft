@@ -2,52 +2,24 @@
   "permissions": {
     "allow": [
       "Read",
-      "Edit",
-      "Bash(pwd)",
-      "Bash(ls *)",
-      "Bash(find *)",
-      "Bash(cat *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(grep *)",
-      "Bash(wc *)",
-      "Bash(git status)",
-      "Bash(git diff *)",
-      "Bash(git log *)",
-      "Bash(git -C * status*)",
-      "Bash(git -C * diff*)",
-      "Bash(git -C * log*)",
-      "Bash(conda info --envs)",
-      "Bash(conda env list)",
-      "Bash(conda run -n deforest python scripts/*.py *)",
-      "Bash(conda run -n deforest python -m pytest *)",
-      "Bash(conda run -n deforest python -c *)",
-      "Bash(python scripts/*.py *)",
-      "Bash(pytest *)",
-      "Bash(marimo edit notebooks/*.py)",
-      "Bash(marimo run notebooks/*.py)",
-      "Bash(marimo *)",
-      "Bash(mkdir *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git branch *)",
-      "Bash(git checkout *)",
-      "Bash(git mv *)",
-      "Bash(python3 *)",
-      "Bash(conda run *)",
-      "Bash(streamlit run *)"
+      "Edit"
     ],
     "deny": [
-      "Bash(rm *)",
-      "Bash(sudo *)",
-      "Bash(curl *)",
-      "Bash(wget *)",
-      "Bash(git push *)",
-      "Bash(git reset --hard*)",
-      "Bash(*|bash*)",
-      "Bash(*|sh*)",
       "Read(.env*)"
     ]
   },
-  "defaultMode": "acceptEdits"
+  "defaultMode": "acceptEdits",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guillaume/Documents/Perso/plume-server/scripts/plume-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
 }

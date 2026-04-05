@@ -99,7 +99,7 @@ def make_fig1():
     neg_sub = neg.iloc[rng.choice(len(neg), size=min(60_000, len(neg)), replace=False)]
 
     ax.scatter(neg_sub["lon"], neg_sub["lat"],
-               s=2, c="#2d6a4f", alpha=0.20, linewidths=0,
+               s=10, c="#2d6a4f", alpha=0.20, linewidths=0,
                rasterized=True, label="No loss (sample)")
     ax.scatter(pos["lon"], pos["lat"],
                s=10, c=CORAL, alpha=0.85, linewidths=0,
@@ -160,9 +160,6 @@ def make_fig2():
         abl = json.load(f)
     with open(ROOT / "data" / "spatial_ablation_20260307.json") as f:
         spatial = json.load(f)
-    with open(ROOT / "data" / "temporal_ablation_20260307.json") as f:
-        temporal = json.load(f)
-
     # ---- Panel A data ----
     grp_labels = {
         "only_spatial":  "Spatial\ncontagion",
@@ -206,18 +203,12 @@ def make_fig2():
         "prauc": e["val_pr_auc"],
     } for e in buf_show]).sort_values("prauc", ascending=True).reset_index(drop=True)
 
-    # ---- Panel C data ----
-    win_exp = [e for e in temporal if e.get("experiment") == "window_depth"]
-    df_win = pd.DataFrame([{
-        "window": e["window"],
-        "prauc":  e["val_pr_auc"],
-    } for e in win_exp]).sort_values("window")
+    # ---- Layout: 2 panels side by side ----
+    fig = plt.figure(figsize=(14, 5))
+    ax_a = fig.add_axes([0.06, 0.18, 0.36, 0.72])   # Panel A (left)
+    ax_b = fig.add_axes([0.56, 0.18, 0.38, 0.72])   # Panel B (right)
 
-    # ---- Layout: explicit axes positions to avoid twin-axis overlap ----
-    # [left, bottom, width, height] in figure fraction
-    fig = plt.figure(figsize=(14, 9))
-    ax_a = fig.add_axes([0.06, 0.48, 0.34, 0.44])   # Panel A (left)
-    ax_b = fig.add_axes([0.58, 0.48, 0.37, 0.44])   # Panel B (right, gap from A twin axis)
+    # ---- Panel A (dimensional ablation) ----
     x_a = np.arange(len(df_dim))
     ax_a.bar(x_a, df_dim["auc"], color=BLUE_MID, alpha=0.85, width=0.5)
     ax_a.axhline(0.5, color=SLATE, linewidth=0.9, linestyle=":")
@@ -234,7 +225,6 @@ def make_fig2():
     ax_a_r.set_ylim(0, 0.12)
     ax_a.set_title("(a) Feature group contribution", loc="left",
                    fontsize=14, fontweight="bold")
-    # Legend at NE
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch as MPatch
     leg_handles = [
@@ -245,36 +235,19 @@ def make_fig2():
     ax_a.legend(handles=leg_handles, fontsize=11, frameon=False,
                 loc="upper right")
 
-    # ---- Panel B (temporal line, top-right) ----
-    ax_b.plot(df_win["window"], df_win["prauc"] * 100, "o-",
-              color=BLUE_MID, linewidth=2.5, markersize=9,
-              markerfacecolor="white", markeredgecolor=BLUE_MID,
-              markeredgewidth=2)
-    ax_b.set_xlabel("Window depth (lag years)")
-    ax_b.set_ylabel("Val PR-AUC (×10⁻²)")
-    ax_b.set_xticks(df_win["window"].tolist())
-    y_vals = df_win["prauc"].values * 100
-    y_lo = y_vals.min() - 0.05
-    y_hi = y_vals.max() + 0.05
-    ax_b.set_ylim(y_lo, y_hi)
-    ax_b.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
-    ax_b.set_title("(b) Temporal window depth", loc="left",
+    # ---- Panel B (spatial horizontal bars) ----
+    y_b = np.arange(len(df_buf))
+    colors_b = _blues(df_buf["prauc"].values)
+    ax_b.barh(y_b, df_buf["prauc"], color=colors_b, alpha=0.90, height=0.60)
+    ax_b.set_yticks(y_b)
+    ax_b.set_yticklabels(df_buf["label"], fontsize=12)
+    ax_b.set_xlabel("Val PR-AUC")
+    ax_b.set_title("(b) Buffer radius combination", loc="left",
                    fontsize=14, fontweight="bold")
-
-    # ---- Panel C (spatial horizontal bars, centered bottom) ----
-    ax_c = fig.add_axes([0.22, 0.06, 0.52, 0.30])
-    y_c = np.arange(len(df_buf))
-    colors_c = _blues(df_buf["prauc"].values)
-    ax_c.barh(y_c, df_buf["prauc"], color=colors_c, alpha=0.90, height=0.60)
-    ax_c.set_yticks(y_c)
-    ax_c.set_yticklabels(df_buf["label"], fontsize=12)
-    ax_c.set_xlabel("Val PR-AUC")
-    ax_c.set_title("(c) Buffer radius combination", loc="left",
-                   fontsize=14, fontweight="bold")
-    max_c = df_buf["prauc"].max()
-    ax_c.set_xlim(0, max_c * 1.32)
+    max_b = df_buf["prauc"].max()
+    ax_b.set_xlim(0, max_b * 1.32)
     for i, row in df_buf.iterrows():
-        ax_c.text(row["prauc"] + max_c * 0.016, i,
+        ax_b.text(row["prauc"] + max_b * 0.016, i,
                   f"AUC = {row['auc']:.3f}",
                   va="center", fontsize=11, color="#1E293B")
 
@@ -283,8 +256,7 @@ def make_fig2():
     plt.close(fig)
 
     df_dim.to_csv(DATA_DIR / "fig2a_dimensional_ablation.csv", index=False)
-    df_win.to_csv(DATA_DIR / "fig2b_temporal_ablation.csv",    index=False)
-    df_buf.to_csv(DATA_DIR / "fig2c_spatial_ablation.csv",     index=False)
+    df_buf.to_csv(DATA_DIR / "fig2b_spatial_ablation.csv",     index=False)
     print("  -> fig2_ablation.pdf")
 
 
@@ -434,57 +406,68 @@ def make_fig4():
 
     print("Fig 4: demo zone forecast...")
 
+    from matplotlib.colors import ListedColormap
+    from matplotlib.patches import Patch
+
     demo = pd.read_parquet(demo_path)
-    pred = pd.read_parquet(ROOT / "data" / "app" / "predictions_val.parquet")
-    world = gpd.read_file(ROOT / "data" / "boundaries" / "ne_110m_countries.gpkg")
 
     # Bbox of demo zone
     bbox = [27.00, 27.30, 2.40, 2.70]  # lon_min, lon_max, lat_min, lat_max
+    VIOLET = "#9b59b6"
+    FOREST = "#2d6a4f"
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 5))
 
-    # ---- Panel A: overview with bbox rectangle ----
+    # Common grid setup
+    spacing = 0.0025
+    lons = np.arange(bbox[0], bbox[1] + spacing / 2, spacing)
+    lats = np.arange(bbox[2], bbox[3] + spacing / 2, spacing)
+    lon_idx = np.round((demo["lon"].values - bbox[0]) / spacing).astype(int)
+    lat_idx = np.round((demo["lat"].values - bbox[2]) / spacing).astype(int)
+    valid = (lon_idx >= 0) & (lon_idx < len(lons)) & (lat_idx >= 0) & (lat_idx < len(lats))
+
+    # ---- Panel A: cumulative deforestation by 2024 ----
     ax = axes[0]
-    lon_min = pred["lon"].min() - 0.5
-    lon_max = pred["lon"].max() + 0.5
-    lat_min = pred["lat"].min() - 0.5
-    lat_max = pred["lat"].max() + 0.5
+    defo_grid = np.full((len(lats), len(lons)), np.nan)
+    defo_grid[lat_idx[valid], lon_idx[valid]] = demo["deforested"].values[valid].astype(float)
 
-    world.clip([lon_min, lat_min, lon_max, lat_max]).plot(
-        ax=ax, facecolor="#E2E8F0", edgecolor="#94A3B8", linewidth=0.6
-    )
-    rng = np.random.default_rng(42)
-    sub = pred.iloc[rng.choice(len(pred), size=min(30_000, len(pred)), replace=False)]
-    ax.scatter(sub["lon"], sub["lat"],
-               s=1, c=sub["proba"], cmap="YlOrRd", alpha=0.4,
-               vmin=0, vmax=1, linewidths=0, rasterized=True)
+    cmap_defo = ListedColormap([FOREST, VIOLET])
+    ax.pcolormesh(lons, lats, defo_grid, cmap=cmap_defo,
+                  vmin=0, vmax=1, rasterized=True, shading="nearest")
+    ax.legend(handles=[
+        Patch(facecolor=FOREST, label="Forest"),
+        Patch(facecolor=VIOLET, label="Deforested"),
+    ], loc="lower right", fontsize=9, framealpha=0.9)
 
-    # Draw bbox rectangle
-    from matplotlib.patches import Rectangle
-    rect = Rectangle(
-        (bbox[0], bbox[2]), bbox[1] - bbox[0], bbox[3] - bbox[2],
-        linewidth=2.5, edgecolor=CORAL, facecolor="none", zorder=10
-    )
-    ax.add_patch(rect)
-    ax.annotate("Zoom area", xy=(bbox[0], bbox[3]),
-                xytext=(bbox[0] - 2.5, bbox[3] + 1.5),
-                fontsize=12, color=CORAL, fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color=CORAL, lw=1.5))
-
-    ax.set_xlim(lon_min, lon_max)
-    ax.set_ylim(lat_min, lat_max)
+    ax.set_xlim(bbox[0], bbox[1])
+    ax.set_ylim(bbox[2], bbox[3])
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title("(a) Study area with zoom region", loc="left",
+    ax.set_title("(a) Cumulative deforestation by 2024", loc="left",
                  fontsize=14, fontweight="bold")
 
-    # ---- Panel B: high-res zoom ----
+    # ---- Panel B: 2025 forecast (risk gradient + violet for already deforested) ----
     ax = axes[1]
-    sc = ax.scatter(demo["lon"], demo["lat"],
-                    c=demo["proba"], cmap="RdYlGn_r",
-                    s=2.5, vmin=0, vmax=demo["proba"].quantile(0.99),
-                    alpha=0.9, linewidths=0, rasterized=True, marker="s")
-    cb = plt.colorbar(sc, ax=ax, fraction=0.04, pad=0.02)
+    is_defo = demo["deforested"].values
+
+    # Layer 1: risk for forested pixels
+    risk_grid = np.full((len(lats), len(lons)), np.nan)
+    mask_forest = valid & ~is_defo
+    risk_grid[lat_idx[mask_forest], lon_idx[mask_forest]] = \
+        demo["proba"].values[mask_forest]
+    pcm = ax.pcolormesh(lons, lats, risk_grid, cmap="RdYlGn_r",
+                        vmin=0, vmax=np.nanquantile(risk_grid, 0.99),
+                        rasterized=True, shading="nearest")
+
+    # Layer 2: already deforested in violet
+    defo_overlay = np.full((len(lats), len(lons)), np.nan)
+    mask_defo = valid & is_defo
+    defo_overlay[lat_idx[mask_defo], lon_idx[mask_defo]] = 1.0
+    cmap_violet = ListedColormap([VIOLET])
+    ax.pcolormesh(lons, lats, defo_overlay, cmap=cmap_violet,
+                  vmin=0.5, vmax=1.5, rasterized=True, shading="nearest")
+
+    cb = plt.colorbar(pcm, ax=ax, fraction=0.04, pad=0.02)
     cb.set_label("Predicted risk (2025)", fontsize=12)
     cb.ax.tick_params(labelsize=10)
 
@@ -492,7 +475,7 @@ def make_fig4():
     ax.set_ylim(bbox[2], bbox[3])
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title("(b) High-resolution 2025 forecast", loc="left",
+    ax.set_title("(b) 2025 deforestation forecast", loc="left",
                  fontsize=14, fontweight="bold")
 
     plt.tight_layout(w_pad=2.5)

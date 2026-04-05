@@ -30,7 +30,7 @@ marimo edit notebooks/01_eda.py
 
 ## Project Structure
 
-See [CLAUDE.md](CLAUDE.md) for detailed structure and conventions.
+See the project documentation for detailed structure and conventions.
 
 ## Tech Stack
 

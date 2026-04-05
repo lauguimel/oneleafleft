@@ -126,6 +126,24 @@ The binary target is $y=1$ if pixel $i$ experienced tree-cover loss
 in year $t$ (the \emph{prediction year}), and $y=0$ otherwise,
 as recorded in the Hansen \texttt{lossyear} band.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig1_study_area.pdf}
+\caption{\label{fig:study_area}
+(a)~Spatial distribution of the 240\,230 validation sample pixels
+(2024 prediction year) over the 10°N/020°E Hansen tile.
+Red dots indicate pixels that experienced tree-cover loss in 2024
+(871 events, 0.36\% prevalence).
+(b)~Predicted deforestation risk for the same pixels from the full 549-feature
+model (AUC-ROC\,=\,0.954); this model is used for the spatial risk map
+because it was deployed in the operational monitoring application.
+The parsimonious 139-feature core model achieves AUC\,=\,0.955 with
+higher PR-AUC (see text).
+Elevated risk (orange--red) clusters along the eastern DRC forest frontier
+and the Central African Republic--DRC border.
+Country boundaries from Natural Earth.}
+\end{figure}
+
 \subsection{Feature engineering and data sources}
 
 For each pixel $i$ and each prediction year $t^*$, we extract
@@ -170,27 +188,35 @@ listed in Table~\ref{tab:ablation}.
 \subsection{Experimental design}
 
 \paragraph{Temporal split.}
-To evaluate true out-of-sample generalisation, we construct two
-physically separate datasets: a training set with prediction years
-2020--2022 (features from 2016 onwards; $N_\mathrm{train}=729\,114$,
-$n^+_\mathrm{train}=2\,525$) and a validation set with prediction year
-2024 (features from 2017 onwards; $N_\mathrm{val}=240\,230$,
-$n^+_\mathrm{val}=871$, prevalence 0.36\%; training set prevalence is 0.35\%).
-The training set never includes observations from 2023, which serves
-exclusively as lag input for the 2024 validation.
+To evaluate true out-of-sample generalisation we construct two
+physically separate datasets.
+The \emph{training set} covers prediction years 2020--2022
+(with features computed from 2016 onward) and contains
+$N_\mathrm{train}=729\,114$ pixels, of which
+$n^+_\mathrm{train}=2\,525$ experienced deforestation
+(prevalence 0.35\%), where $n^+$ denotes the number of
+positive (deforested) samples.
+The \emph{validation set} targets prediction year 2024
+(features from 2017 onward; $N_\mathrm{val}=240\,230$,
+$n^+_\mathrm{val}=871$, prevalence 0.36\%).
+By construction, the training set never includes any observation
+from 2023, which is reserved exclusively as lag-1 input
+for the 2024 validation predictions.
 
 \paragraph{Classifier.}
-We use XGBoost gradient boosted trees~\cite{Chen2016} with early
-stopping on the validation log-loss.
-Class imbalance is handled by setting
-\texttt{scale\_pos\_weight}$= \lfloor(N_\mathrm{train} - n^+_\mathrm{train}) /
-n^+_\mathrm{train}\rfloor = \lfloor 726\,589 / 2\,525 \rfloor = 288$,
-matching the negative-to-positive ratio in the training set.
-Hyperparameter tuning was performed using Bayesian optimisation
-(50 trials, Optuna~\cite{Akiba2019}) minimising validation log-loss;
-the tuned configuration was then retrained on the full training set.
-No spatial or temporal cross-validation is applied during training;
-all generalisation claims are based on the held-out 2024 forecast.
+We train an XGBoost gradient-boosted tree
+ensemble~\cite{Chen2016} with early stopping on validation
+log-loss.
+To handle the severe class imbalance, we set the
+\texttt{scale\_pos\_weight} parameter to the ratio of negative
+to positive training samples ($\approx$288), which up-weights
+the minority class proportionally.
+Hyperparameters are tuned via Bayesian optimisation
+(50 trials, Optuna~\cite{Akiba2019}) minimising validation
+log-loss; the best configuration is then retrained on the full
+training set.
+All generalisation claims rest on the held-out 2024 forecast;
+no spatial or temporal cross-validation is used during training.
 
 \paragraph{Ablation experiments.}
 We conduct three sets of ablation experiments.
@@ -204,21 +230,30 @@ and four encoding schemes are compared (lags only; lags + summaries;
 lags + differences; full encoding).
 
 \paragraph{Evaluation metrics.}
-For severely class-imbalanced predictions, area under the
-precision-recall curve (PR-AUC) is a more discriminating metric
-than AUC-ROC~\cite{Mayfield2017}.
-We report both throughout and complement them with two
-operationally interpretable quantities.
-The \emph{concentration curve} $C(s)$ is defined as the fraction
-of total positive events recovered by screening the $s$ fraction
-of pixels with the highest predicted risk; it summarises the model's
-ability to concentrate deforestation risk into a small target area.
-\emph{Lift} at screening fraction $s$ is defined as
-$\mathcal{L}(s) = \mathrm{recall}(s)/s$,
-where $\mathrm{recall}(s)$ is the fraction of positive events
-recovered by screening the top-$s$ fraction of pixels;
-a lift of 23 at $s=0.01$ means the model finds 23 times more
-deforestation events per unit area than random selection.
+We use two complementary ranking metrics.
+The \emph{area under the receiver operating characteristic curve}
+(AUC-ROC) measures a classifier's ability to rank positive
+examples above negative ones across all decision thresholds:
+a random classifier scores 0.5, a perfect classifier scores 1.0.
+Because AUC-ROC can appear misleadingly high when positives are
+rare~\cite{Mayfield2017}, we also report the \emph{area under
+the precision--recall curve} (PR-AUC), which focuses on the
+model's ability to maintain high precision as recall increases.
+For PR-AUC the baseline of a random classifier equals the class
+prevalence---here approximately 0.004---so any value substantially
+above this threshold indicates genuine predictive skill.
+
+We complement these with two operationally interpretable quantities.
+The \emph{concentration curve} $C(s)$ gives the fraction
+of total deforestation events recovered when screening the
+top-$s$ fraction of pixels ranked by predicted risk;
+it measures how tightly the model concentrates risk into a
+small target area.
+The \emph{lift} at screening fraction $s$ is defined as
+$\mathcal{L}(s) = \mathrm{recall}(s)/s$;
+a lift of 23 at $s=0.01$ means the top 1\% of predicted pixels
+contains 23 times more deforestation events than a random
+selection of 1\% of pixels would.
 
 \paragraph{Interpretability.}
 TreeSHAP~\cite{Lundberg2017, Lundberg2020} is used to attribute
@@ -295,9 +330,21 @@ All features                  & 549 & 0.954 & 0.068 \\
 \end{center}
 \end{table}
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig2_ablation.pdf}
+\caption{\label{fig:ablation}
+Feature ablation results on the 2024 validation set.
+(a)~Dimensional ablation: validation AUC-ROC (blue bars, left axis)
+and PR-AUC (orange dots, right axis) for each feature group used alone,
+ordered by single-group contribution.
+(b)~Spatial ablation: PR-AUC for seven buffer-radius configurations;
+AUC-ROC annotated on each bar.}
+\end{figure}
+
 \subsection{Spatial ablation: multi-scale buffers improve minority recall}
 
-Figure~\ref{fig:ablation}(c) and Table~\ref{tab:spatial} compare
+Figure~\ref{fig:ablation}(b) and Table~\ref{tab:spatial} compare
 configurations of the four buffer radii.
 In single-radius configurations, the 500\,m buffer yields the highest
 AUC-ROC (0.944), while the 150\,m buffer provides the highest PR-AUC
@@ -344,10 +391,29 @@ Configuration & $N_\mathrm{feat}$ & AUC-ROC & PR-AUC \\
 \subsection{Temporal ablation: one lag year is sufficient}
 \label{sec:results_temporal}
 
-Figure~\ref{fig:ablation}(b) shows that extending the temporal window
-from one to four lag years provides marginal improvement in both metrics
-($\Delta$AUC\,$<$\,0.003, $\Delta$PR-AUC\,$<$\,0.002), with
-the single-year model already achieving AUC 0.954 and PR-AUC 0.076.
+\begin{table}[htbp]
+\begin{center}
+\caption{\label{tab:temporal}
+Temporal ablation: validation metrics as a function of
+lag-window depth (core feature set).}
+\begin{tabular}{lccc}
+\toprule
+Window depth & Features & AUC-ROC & PR-AUC \\
+\midrule
+1 year  &  29 & 0.954 & 0.076 \\
+2 years & 104 & 0.957 & 0.075 \\
+3 years & 119 & 0.955 & 0.077 \\
+4 years & 139 & 0.957 & 0.076 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+Table~\ref{tab:temporal} shows that extending the temporal window
+from one to four lag years yields negligible improvement in both
+metrics ($\Delta$AUC\,$<$\,0.003, $\Delta$PR-AUC\,$<$\,0.002),
+with the single-year model already achieving AUC-ROC 0.954 and
+PR-AUC 0.076.
 This result is consistent across encoding schemes: the lags-only
 representation achieves AUC~0.953 while the full encoding
 (lags + differences + summaries) reaches AUC~0.956, a difference
@@ -371,6 +437,20 @@ Screening 10\% of pixels recovers 90.9\% of the observed deforestation,
 confirming that the model concentrates the signal effectively.
 This translates to a nine-fold improvement in patrol efficiency
 over random area allocation.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig3_lift_shap.pdf}
+\caption{\label{fig:lift_shap}
+(a)~Concentration curve for the deployed model on the 2024 validation set:
+fraction of observed deforestation captured versus fraction of area screened.
+Annotated values indicate recall at 1\%, 5\%, and 10\% screening thresholds.
+The dashed line represents random screening.
+(b)~Top-15 features by mean absolute SHAP value.
+Bar colour encodes magnitude (sequential blue gradient: darker\,=\,higher importance).
+Feature group labels (Spatial, Climate, Demography) are annotated to the right
+of each bar.}
+\end{figure}
 
 TreeSHAP attribution (Figure~\ref{fig:lift_shap}(b)) identifies the
 window-mean deforestation rate at 1.5\,km radius
@@ -412,6 +492,20 @@ frontier: high-risk pixels (red) concentrate along roads and existing
 clearings, while intact forest patches (green) remain at low predicted
 risk---consistent with the contagion-dominated dynamics identified by
 the ablation study.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/fig4_demo_zone.pdf}
+\caption{\label{fig:demo_zone}
+High-resolution deforestation map and 2025 forecast.
+(a)~Cumulative deforestation status by 2024 at 250\,m spacing
+(14{,}641~points): green\,=\,forested, violet\,=\,deforested
+(Hansen GFC\,v1.12 \texttt{lossyear}\,$\in$\,[1,24]).
+(b)~Predicted deforestation risk for 2025 (same grid).
+Green-to-red gradient indicates predicted risk for currently forested pixels;
+violet pixels are already deforested (carried from panel~a).
+This is a true forecast: no 2025 deforestation data exists at time of writing.}
+\end{figure}
 
 
 % ===========================================================================
@@ -534,68 +628,5 @@ No dedicated funding was received for this work.
 % NOTE for submission: replace 'unsrt' with 'iopart-num' and ensure
 % iopart-num.bst is installed.
 \bibliography{references}
-
-% ===========================================================================
-% Figures
-% ===========================================================================
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig1_study_area.pdf}
-\caption{\label{fig:study_area}
-(a)~Spatial distribution of the 240\,230 validation sample pixels
-(2024 prediction year) over the 10°N/020°E Hansen tile.
-Red dots indicate pixels that experienced tree-cover loss in 2024
-(871 events, 0.36\% prevalence).
-(b)~Predicted deforestation risk for the same pixels from the full 549-feature
-model (AUC-ROC\,=\,0.954); this model is used for the spatial risk map
-because it was deployed in the operational monitoring application.
-The parsimonious 139-feature core model achieves AUC\,=\,0.955 with
-higher PR-AUC (see text).
-Elevated risk (orange--red) clusters along the eastern DRC forest frontier
-and the Central African Republic--DRC border.
-Country boundaries from Natural Earth.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig2_ablation.pdf}
-\caption{\label{fig:ablation}
-Triple feature ablation results on the 2024 validation set.
-(a)~Dimensional ablation: validation AUC-ROC (blue bars, left axis)
-and PR-AUC (orange dots, right axis) for each feature group used alone,
-ordered by single-group contribution.
-(b)~Temporal ablation: PR-AUC as a function of lag-window depth
-(1--4 years); the near-flat curve confirms that one lag year suffices.
-(c)~Spatial ablation: PR-AUC for seven buffer-radius configurations;
-AUC-ROC annotated on each bar.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig3_lift_shap.pdf}
-\caption{\label{fig:lift_shap}
-(a)~Concentration curve for the deployed model on the 2024 validation set:
-fraction of observed deforestation captured versus fraction of area screened.
-Annotated values indicate recall at 1\%, 5\%, and 10\% screening thresholds.
-The dashed line represents random screening.
-(b)~Top-15 features by mean absolute SHAP value.
-Bar colour encodes magnitude (sequential blue gradient: darker\,=\,higher importance).
-Feature group labels (Spatial, Climate, Demography) are annotated to the right
-of each bar.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{figures/fig4_demo_zone.pdf}
-\caption{\label{fig:demo_zone}
-High-resolution deforestation forecast for 2025.
-(a)~Study area overview with the 0.3\textdegree{}\,$\times$\,0.3\textdegree{}
-zoom region (red rectangle) in northeastern Congo.
-(b)~Pixel-level risk map at 250\,m spacing (13{,}232~points).
-Green indicates low predicted risk (intact forest); red indicates
-high risk (active deforestation frontier).
-This is a true forecast: no 2025 deforestation data exists at time of writing.}
-\end{figure}
 
 \end{document}
