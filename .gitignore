@@ -1,5 +1,6 @@
 # Data (large files) — only top-level data/
 /data/
+!/data/app/
 /data_validation/
 *.tif
 *.tiff
