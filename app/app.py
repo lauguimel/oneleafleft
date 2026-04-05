@@ -129,6 +129,33 @@ st.markdown(
     .block-container { padding-top: 2.5rem; }
     [data-testid="stSidebar"] .block-container { padding-top: 1rem; }
 
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(39, 174, 96, 0.12) 0%, rgba(39, 174, 96, 0.03) 100%);
+    }
+    [data-testid="stSidebar"] h1 {
+        color: #27ae60 !important;
+        font-size: 1.6em !important;
+        border-bottom: 2px solid rgba(39, 174, 96, 0.3);
+        padding-bottom: 0.3rem;
+    }
+    [data-testid="stSidebar"] h3 {
+        opacity: 0.8;
+        font-weight: 400;
+    }
+    .olf-sidebar-metrics {
+        background: rgba(39, 174, 96, 0.08);
+        border-radius: 0.5rem;
+        padding: 0.8rem;
+        margin: 0.5rem 0;
+    }
+    .olf-sidebar-footer {
+        background: rgba(52, 152, 219, 0.06);
+        border-radius: 0.5rem;
+        padding: 0.8rem;
+        margin-top: 0.5rem;
+    }
+
     /* Section cards */
     .olf-card {
         background: rgba(39, 174, 96, 0.06);
@@ -227,7 +254,11 @@ st.sidebar.markdown(
     """
 )
 
-st.sidebar.markdown("#### Key metrics")
+st.sidebar.markdown(
+    '<div class="olf-sidebar-metrics">',
+    unsafe_allow_html=True,
+)
+st.sidebar.markdown("**Key metrics**")
 col_a, col_b = st.sidebar.columns(2)
 col_a.metric("AUC-ROC", f"{info['val_auc_roc']:.1%}")
 col_b.metric("Deforestation rate", f"{info['val_pos']/info['val_n']*100:.2f}%")
@@ -239,19 +270,21 @@ st.sidebar.markdown(
     {info['n_features']} environmental features<br>
     Congo Basin, Central Africa
     </small>
+    </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.sidebar.markdown("---")
 st.sidebar.markdown(
     """
+    <div class="olf-sidebar-footer">
     <small>
     <i>Guillaume Maîtrejean & Marc Bouvier</i><br>
     Universite Grenoble Alpes / NitiDae<br><br>
     Data: Google Earth Engine, OSM, World Bank<br>
     Model: XGBoost + TreeSHAP
     </small>
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -264,7 +297,7 @@ st.sidebar.markdown(
 st.markdown(
     """
     <div style="text-align: center; padding: 0; margin-top: 0;">
-    <h1 style="margin: 0; font-size: 2.8em;">🌿 OneLeafLeft</h1>
+    <h1 style="margin: 0; font-size: 2.8em;">OneLeafLeft</h1>
     <p class="olf-subtitle">
     Predicting where deforestation will strike next in the Congo Basin
     </p>
@@ -290,7 +323,7 @@ left, right = st.columns(2)
 with left:
     st.markdown(
         """
-        ### 🌍 Why predict deforestation?
+        ### Why predict deforestation?
 
         The **Congo Basin** is the world's second-largest tropical rainforest,
         spanning **6 countries** across Central Africa. It is a critical carbon
@@ -309,7 +342,7 @@ with left:
 with right:
     st.markdown(
         """
-        ### 🎯 What does this model do?
+        ### What does this model do?
 
         We analyse **250,000 forest locations** and estimate the
         **probability of deforestation in the next year** (2024).
@@ -329,21 +362,20 @@ with right:
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
 
 # Data sources
-st.markdown("### 📊 Data sources")
+st.markdown("### Data sources")
 st.markdown("The model combines **33 variables** from satellite imagery and public databases:")
 
 data_cols = st.columns(4)
 sources = [
-    ("🛰️", "Satellite", "Forest cover & loss history<br>Neighbourhood deforestation<br>Night light intensity", "Hansen GFC, VIIRS"),
-    ("🏗️", "Infrastructure", "Distance to roads<br>Distance to villages<br>Protected area status", "OpenStreetMap, WDPA"),
-    ("🌡️", "Environment", "Elevation & slope<br>Temperature & rainfall<br>Dry season length", "SRTM, ERA5, CHIRPS"),
-    ("👥", "Socio-economic", "Population density<br>Population growth<br>Governance indicators", "WorldPop, World Bank"),
+    ("Satellite", "Forest cover & loss history<br>Neighbourhood deforestation<br>Night light intensity", "Hansen GFC, VIIRS"),
+    ("Infrastructure", "Distance to roads<br>Distance to villages<br>Protected area status", "OpenStreetMap, WDPA"),
+    ("Environment", "Elevation & slope<br>Temperature & rainfall<br>Dry season length", "SRTM, ERA5, CHIRPS"),
+    ("Socio-economic", "Population density<br>Population growth<br>Governance indicators", "WorldPop, World Bank"),
 ]
-for col, (icon, title, items, src) in zip(data_cols, sources):
+for col, (title, items, src) in zip(data_cols, sources):
     col.markdown(
         f"""
         <div class="olf-source">
-        <span style="font-size: 1.5em;">{icon}</span>
         <b>{title}</b><br><br>
         <small>{items}</small><br><br>
         <small class="olf-muted"><i>{src}</i></small>
@@ -355,7 +387,7 @@ for col, (icon, title, items, src) in zip(data_cols, sources):
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
 
 # How it works
-st.markdown("### ⚙️ How it works")
+st.markdown("### How it works")
 steps = st.columns(5)
 step_titles = ["1. Extract", "2. Encode", "3. Split", "4. Train", "5. Explain"]
 step_descs = [
@@ -365,12 +397,10 @@ step_descs = [
     "XGBoost gradient boosting — fast, accurate, interpretable",
     "SHAP values reveal *why* each location is at risk",
 ]
-step_icons = ["🛰️", "🔄", "✂️", "🎯", "🔍"]
-for col, title, desc, icon in zip(steps, step_titles, step_descs, step_icons):
+for col, title, desc in zip(steps, step_titles, step_descs):
     col.markdown(
         f"""
         <div class="olf-step">
-        <span style="font-size: 1.8em;">{icon}</span><br>
         <b>{title}</b><br>
         <small class="olf-muted">{desc}</small>
         </div>
@@ -384,10 +414,10 @@ for col, title, desc, icon in zip(steps, step_titles, step_descs, step_icons):
 # ==========================================================================
 
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
-st.markdown("## 📈 Results")
+st.markdown("## Results")
 
 # ── Risk Map ──
-st.markdown("### 🗺️ Deforestation risk map")
+st.markdown("### Deforestation risk map")
 st.markdown(
     "Each dot represents a forest location. Darker dots have a higher "
     "probability of being deforested in 2024."
@@ -405,9 +435,9 @@ fig_map = px.scatter_mapbox(
     range_color=[df_plot["risk_pct"].quantile(0.05), df_plot["risk_pct"].max()],
     hover_data={"risk_pct": ":.1f", "lat": ":.3f", "lon": ":.3f"},
     labels={"risk_pct": "Risk (%)"},
-    zoom=6, height=550,
+    zoom=5, height=550,
     mapbox_style="carto-positron",
-    center={"lat": 5.1, "lon": 25.0},
+    center={"lat": 5.0, "lon": 25.0},
 )
 fig_map.update_layout(margin=dict(l=0, r=0, t=0, b=0))
 st.plotly_chart(fig_map, use_container_width=True, config={"scrollZoom": True})
@@ -432,7 +462,7 @@ call_right.info(
 # ── Demo zone: high-resolution 2025 forecast ──
 demo_path = APP_DATA / "demo_zone_predictions.parquet"
 if demo_path.exists():
-    st.markdown("### 🔬 High-resolution forecast (2025)")
+    st.markdown("### High-resolution forecast (2025)")
     st.markdown(
         "To demonstrate operational use, we generated a **dense prediction grid** "
         "(250 m spacing) over a ~30 km region near **Virunga, eastern DRC** — "
@@ -490,7 +520,7 @@ if demo_path.exists():
     st.markdown("")
 
 # ── Screening efficiency ──
-st.markdown("### 🔎 Screening efficiency")
+st.markdown("### Screening efficiency")
 st.markdown(
     "Ranking all locations by predicted risk and checking them from "
     "highest to lowest: how much deforestation do we capture?"
@@ -597,7 +627,7 @@ with st.expander("Model predictions vs reality"):
 # ==========================================================================
 
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
-st.markdown("## 🌳 Key drivers")
+st.markdown("## Key drivers")
 
 imp = load_feature_importance()
 imp["label"] = imp["feature"].apply(humanize)
@@ -721,7 +751,7 @@ with st.expander("Inspect a specific location"):
 # ==========================================================================
 
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
-st.markdown("## 🧪 Ablation experiments")
+st.markdown("## Ablation experiments")
 st.markdown(
     "We systematically tested which information the model actually needs, "
     "removing groups of features to measure their contribution."
@@ -859,7 +889,7 @@ with col_spat:
 
 # ── Key findings summary ──
 st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
-st.markdown("### 💡 Key findings")
+st.markdown("### Key findings")
 f1, f2 = st.columns(2)
 with f1:
     st.success(
@@ -1002,7 +1032,7 @@ st.markdown('<div class="olf-divider"></div>', unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align: center; font-size: 0.85em;" class="olf-muted">
-    🌿 <b>OneLeafLeft</b> — Deforestation prediction in the Congo Basin<br>
+    <b>OneLeafLeft</b> — Deforestation prediction in the Congo Basin<br>
     XGBoost model trained on 730K observations | 250K locations | 2016–2024 data<br>
     <i>Guillaume Maîtrejean & Marc Bouvier</i> | UGA / NitiDae
     </div>
