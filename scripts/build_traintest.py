@@ -68,6 +68,11 @@ def main():
     # Force all rows to "train"
     df["split"] = "train"
 
+    # Drop target-tautology metadata: `lossyear` is the Hansen loss year and
+    # equals (prediction_year - 2000) for every positive sample by construction.
+    # Keeping it inflates PR-AUC ×9 (verified 2026-04-09).
+    df = df.drop(columns=[c for c in ["lossyear"] if c in df.columns])
+
     # Summary
     pred_yrs = sorted(df["prediction_year"].unique())
     pos_rate = df["target"].mean() * 100

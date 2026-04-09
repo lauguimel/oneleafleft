@@ -74,6 +74,10 @@ def main():
         f"Expected only pred_yr=2024, got {df['prediction_year'].unique()}"
     )
 
+    # Drop target-tautology metadata: `lossyear` equals (prediction_year - 2000)
+    # for every positive sample by construction. Inflates PR-AUC ×9 if kept.
+    df = df.drop(columns=[c for c in ["lossyear"] if c in df.columns])
+
     # Summary
     pos_rate = df["target"].mean() * 100
     print(f"\nDataset: {df.shape[0]:,} rows × {df.shape[1]} columns")

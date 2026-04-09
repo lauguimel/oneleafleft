@@ -40,7 +40,20 @@ from train_xgboost import (
 from ablation_study import resolve_group
 
 sys.path.insert(0, str(PROJECT_DIR / "src"))
-from evaluation.spatial_cv import SpatialBlockKFold  # noqa: E402
+from evaluation.spatial_cv import SpatialBlockKFold, project_km  # noqa: E402
+
+
+def _ensure_xy_km(df):
+    """Add x_km/y_km columns from lon/lat if missing (in-place safe)."""
+    if "x_km" in df.columns and "y_km" in df.columns:
+        return df
+    if "lon" not in df.columns or "lat" not in df.columns:
+        raise KeyError("Need either (x_km,y_km) or (lon,lat) on the dataframe.")
+    x_km, y_km = project_km(df["lon"].to_numpy(), df["lat"].to_numpy())
+    df = df.copy()
+    df["x_km"] = x_km
+    df["y_km"] = y_km
+    return df
 
 OUTPUT_DIR = PROJECT_DIR / "data"
 CORE_GROUPS = ["hansen", "spatial", "infra"]
@@ -296,6 +309,7 @@ def main(
     # ── Run optimization ────────────────────────────────────────────────────
     print(f"\n[2] Running {n_trials} Optuna trials (cv={cv})...")
     if cv == "spatial":
+        train_df = _ensure_xy_km(train_df)
         spatial_obj = make_spatial_cv_objective(
             train_df,
             feature_cols=core_cols,
@@ -366,7 +380,7 @@ def main(
         "best_trial": best.number,
         "best_params": best.params,
         "best_val_pr_auc": best.value,
-        "best_val_auc_roc": best.user_attrs["val_auc_roc"],
+        "best_val_auc_roc": best.user_attrs.get("val_auc_roc"),
         "feature_cols": core_cols,
         "n_features": len(core_cols),
         "scale_pos_weight": spw,

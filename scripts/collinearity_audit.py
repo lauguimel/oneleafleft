@@ -80,8 +80,9 @@ def _save_dendrogram(corr: pd.DataFrame, path: Path, title: str) -> None:
     if corr.shape[0] < 2:
         return
     dist = 1.0 - corr.abs().values
+    dist = np.nan_to_num(dist, nan=1.0, posinf=1.0, neginf=1.0)
     np.fill_diagonal(dist, 0.0)
-    dist = np.clip((dist + dist.T) / 2.0, 0.0, None)
+    dist = np.clip((dist + dist.T) / 2.0, 0.0, 1.0)
     Z = linkage(squareform(dist, checks=False), method="average")
     fig, ax = plt.subplots(figsize=(max(8, corr.shape[0] * 0.15), 6))
     dendrogram(Z, labels=list(corr.columns), leaf_rotation=90, ax=ax)
@@ -110,6 +111,19 @@ def main() -> None:
     parser.add_argument("--year-col", type=str, default="year")
     parser.add_argument("--x-col", type=str, default="x_m")
     parser.add_argument("--y-col", type=str, default="y_m")
+    parser.add_argument("--sample-n", type=int, default=None,
+                        help="Subsample N rows before computing correlations (cost control).")
+    parser.add_argument("--skip-spearman", action="store_true",
+                        help="Skip Spearman (slowest step on full data).")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--min-unique", type=int, default=5,
+                        help="Drop features with fewer than N unique values "
+                             "(filters constants + commodity-price-like artefacts). "
+                             "Default 5 keeps sparse contagion features.")
+    parser.add_argument("--protect", type=str, default="target,prediction_year,lossyear",
+                        help="Comma-separated columns never dropped by min-unique filter.")
+    parser.add_argument("--top-per-family", type=int, default=20,
+                        help="Top-N pairs per family pair to report.")
     args = parser.parse_args()
 
     if args.params and Path(args.params).exists():
@@ -121,13 +135,32 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[collinearity] loading {data_path}")
-    df = pd.read_parquet(data_path)
+    print(f"[collinearity] loading {data_path}", flush=True)
+    df_full = pd.read_parquet(data_path)
+    print(f"[collinearity] loaded {len(df_full)} rows × {df_full.shape[1]} cols", flush=True)
+    if args.sample_n and len(df_full) > args.sample_n:
+        df = df_full.sample(n=args.sample_n, random_state=args.seed).reset_index(drop=True)
+        print(f"[collinearity] subsampled to {len(df)} rows for correlation step", flush=True)
+    else:
+        df = df_full
     numeric = df.select_dtypes(include=[np.number])
-    # Drop columns with all-NaN or zero variance.
+    n0 = numeric.shape[1]
+    # Drop all-NaN, zero-variance, and quasi-constant columns.
     numeric = numeric.dropna(axis=1, how="all")
     numeric = numeric.loc[:, numeric.std(ddof=0) > 0]
-    print(f"[collinearity] numeric features: {numeric.shape[1]}")
+    protected = {c.strip() for c in args.protect.split(",") if c.strip()}
+    if args.min_unique > 1:
+        nunique = numeric.nunique(dropna=True)
+        keep = set(nunique[nunique >= args.min_unique].index) | (protected & set(numeric.columns))
+        dropped = sorted(set(numeric.columns) - keep)
+        numeric = numeric[[c for c in numeric.columns if c in keep]]
+        if dropped:
+            (out_dir / "dropped_low_variance.txt").write_text(
+                "\n".join(dropped) + "\n"
+            )
+            print(f"[collinearity] dropped {len(dropped)} cols with <{args.min_unique} "
+                  f"unique values (e.g. {dropped[:5]})", flush=True)
+    print(f"[collinearity] numeric features: {numeric.shape[1]} (from {n0})", flush=True)
 
     # Family classification.
     families: dict[str, list[str]] = defaultdict(list)
@@ -138,25 +171,33 @@ def main() -> None:
     print(f"[collinearity] families: {fam_summary.to_dict()}")
 
     # Global correlations.
-    print("[collinearity] computing Pearson correlation...")
+    print("[collinearity] computing Pearson correlation...", flush=True)
     pearson = compute_correlations(numeric, method="pearson")
     pearson.to_csv(out_dir / "corr_pearson.csv")
+    print("[collinearity]   pearson done", flush=True)
 
-    print("[collinearity] computing Spearman correlation...")
-    spearman = compute_correlations(numeric, method="spearman")
-    spearman.to_csv(out_dir / "corr_spearman.csv")
+    if args.skip_spearman:
+        spearman = pearson
+        print("[collinearity] skipping Spearman", flush=True)
+    else:
+        print("[collinearity] computing Spearman correlation...", flush=True)
+        spearman = compute_correlations(numeric, method="spearman")
+        spearman.to_csv(out_dir / "corr_spearman.csv")
+        print("[collinearity]   spearman done", flush=True)
 
     # Top pairs.
     top_pearson = extract_top_pairs(pearson, n=100)
     top_pearson.to_csv(out_dir / "top_pairs_pearson.csv", index=False)
     top_spearman = extract_top_pairs(spearman, n=100)
     top_spearman.to_csv(out_dir / "top_pairs_spearman.csv", index=False)
+    print("[collinearity] top pairs extracted", flush=True)
 
     # Per-family heatmaps + VIF.
     vif_records = []
     for fam, cols in families.items():
         if len(cols) < 2:
             continue
+        print(f"[collinearity] family={fam} ({len(cols)} cols): heatmap+VIF...", flush=True)
         sub = numeric[cols]
         fam_corr = compute_correlations(sub, method="pearson")
         _save_heatmap(fam_corr, out_dir / f"heatmap_{fam}.png",
@@ -203,9 +244,28 @@ def main() -> None:
     decorr_path.write_text("\n".join(representatives) + "\n")
     print(f"[collinearity] wrote {len(representatives)} representatives to {decorr_path}")
 
-    # Annotate top-50 pairs.
+    # Annotate top-50 global pairs.
     top50_annotated = annotate_pairs(extract_top_pairs(pearson, n=50))
     top50_annotated.to_csv(out_dir / "top_pairs_annotated.csv", index=False)
+
+    # Top-N per family pair (much more useful than global top).
+    all_pairs = annotate_pairs(extract_top_pairs(pearson, n=10000))
+    by_family_pair = []
+    for (fa, fb), grp in all_pairs.groupby(["family_a", "family_b"]):
+        by_family_pair.append(grp.head(args.top_per_family))
+    top_by_pair = pd.concat(by_family_pair, ignore_index=True) if by_family_pair else pd.DataFrame()
+    top_by_pair.to_csv(out_dir / "top_pairs_by_family.csv", index=False)
+    # Within-family contagion-only top (the question that matters most).
+    contagion_top = all_pairs[
+        (all_pairs["family_a"] == "contagion") & (all_pairs["family_b"] == "contagion")
+    ].head(30)
+    contagion_top.to_csv(out_dir / "top_pairs_contagion.csv", index=False)
+    # Cross-family pop x night_lights (Marc's example).
+    pop_ntl = all_pairs[
+        ((all_pairs["family_a"] == "demography") & (all_pairs["family_b"] == "night_lights"))
+        | ((all_pairs["family_a"] == "night_lights") & (all_pairs["family_b"] == "demography"))
+    ].head(30)
+    pop_ntl.to_csv(out_dir / "top_pairs_pop_ntl.csv", index=False)
 
     # Summary markdown.
     summary_path = Path("results/collinearity_audit.md")
@@ -234,7 +294,15 @@ def main() -> None:
         "",
         top_pearson.head(10).to_markdown(index=False),
         "",
-        "## Top 50 annotated pairs",
+        "## Top contagion×contagion pairs (the central question)",
+        "",
+        contagion_top.head(20).to_markdown(index=False) if len(contagion_top) else "_no contagion pairs_",
+        "",
+        "## Top demography×night_lights pairs (Marc's example)",
+        "",
+        pop_ntl.head(20).to_markdown(index=False) if len(pop_ntl) else "_no such pairs_",
+        "",
+        "## Top 50 annotated pairs (global)",
         "",
         top50_annotated.to_markdown(index=False),
         "",
@@ -247,12 +315,21 @@ def main() -> None:
         "",
     ]
     # --- Family ablation (optional) ---
-    if args.ablation and args.test_data:
-        print("[collinearity] running family ablation...")
-        df_test = pd.read_parquet(args.test_data)
+    if args.ablation:
+        print("[collinearity] running family ablation...", flush=True)
+        if args.test_data:
+            df_train = df_full
+            df_test = pd.read_parquet(args.test_data)
+        elif "split" in df_full.columns:
+            df_train = df_full[df_full["split"] == "train"].reset_index(drop=True)
+            df_test = df_full[df_full["split"] == "test"].reset_index(drop=True)
+            print(f"[collinearity]   split from col: train={len(df_train)} test={len(df_test)}",
+                  flush=True)
+        else:
+            raise ValueError("--ablation requires --test-data or a 'split' column.")
         fams = [f for f in families.keys() if f != "other"]
         ablation_df = family_ablation(
-            df, df_test, args.target, classify_feature_family, fams, xgb_params,
+            df_train, df_test, args.target, classify_feature_family, fams, xgb_params,
         )
         ablation_df.to_csv(out_dir / "family_ablation.csv", index=False)
         lines += [

@@ -17,12 +17,17 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 
 # Family classification: ordered (first match wins).
+# Base families take precedence over temporal suffixes (_Lag, _anom, _d1)
+# because those suffixes are orthogonal modifiers applied to all families.
 _FAMILY_PATTERNS: List[tuple[str, re.Pattern]] = [
-    ("demography", re.compile(r"(pop|worldpop|density|urban|settlement|ghsl)", re.I)),
+    ("contagion", re.compile(r"^(defo_rate_|cum_deforested|forest_loss_buffer)", re.I)),
+    ("protected_areas", re.compile(r"^(pa_|wdpa_|dist_pa_)", re.I)),
+    ("night_lights", re.compile(r"^ntl_", re.I)),
+    ("demography", re.compile(r"(^pop|worldpop|density|urban|settlement|ghsl)", re.I)),
     ("climate", re.compile(r"(chirps|era5|precip|temp|tmin|tmax|rain|evap|wind|humid|spi|pdsi)", re.I)),
-    ("topography", re.compile(r"(srtm|elev|slope|aspect|dem|altitude|terrain|ruggedness)", re.I)),
-    ("contagion", re.compile(r"(buffer|neighbor|contagion|dist_|distance|nearest|adjacent|spatial_lag)", re.I)),
-    ("temporal_profile", re.compile(r"(delta|d1yr|d3yr|d10yr|anomaly|volatility|trend|_lag\d|_diff\d)", re.I)),
+    ("topography", re.compile(r"(srtm|elev|slope|aspect|^dem|altitude|terrain|ruggedness)", re.I)),
+    ("infrastructure", re.compile(r"(road|river|town|city|market|port|airport|dist_|distance_)", re.I)),
+    ("temporal_profile", re.compile(r"(_lag\d|_anom|_d1\b|_d3\b|_d10\b|_delta|_trend|_volatility|d1yr|d3yr|d10yr|anomaly|volatility)", re.I)),
 ]
 
 
@@ -95,9 +100,11 @@ def cluster_features(corr: pd.DataFrame, threshold: float) -> Dict[int, List[str
     if len(features) < 2:
         return {1: features} if features else {}
     dist = 1.0 - corr.abs().values
+    # NaN correlations (e.g. constant columns) become max distance.
+    dist = np.nan_to_num(dist, nan=1.0, posinf=1.0, neginf=1.0)
     np.fill_diagonal(dist, 0.0)
-    # Ensure symmetry and non-negativity
-    dist = np.clip((dist + dist.T) / 2.0, 0.0, None)
+    # Ensure symmetry and bounded distance.
+    dist = np.clip((dist + dist.T) / 2.0, 0.0, 1.0)
     condensed = squareform(dist, checks=False)
     Z = linkage(condensed, method="average")
     labels = fcluster(Z, t=1.0 - threshold, criterion="distance")

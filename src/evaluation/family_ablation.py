@@ -104,7 +104,9 @@ def family_ablation(
         pr_auc_lo, pr_auc_hi, delta_pr_auc]``. Delta is relative to the full
         baseline trained on all features.
     """
-    feat_cols = [c for c in df_train.columns if c != target]
+    # Keep numeric features only — XGBoost cannot consume strings.
+    numeric_cols = df_train.select_dtypes(include=[np.number]).columns.tolist()
+    feat_cols = [c for c in numeric_cols if c != target]
     X_tr_full = df_train[feat_cols]
     X_te_full = df_test[feat_cols]
     y_tr = df_train[target].values
