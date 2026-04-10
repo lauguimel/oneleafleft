@@ -39,15 +39,31 @@ sync_data() {
     echo "    Done."
 }
 
-submit_job() {
-    echo "[3] Submitting PBS job..."
+submit_train() {
+    echo "[3] Submitting training job..."
     ssh "$AQUA" "cd $REMOTE_DIR && qsub aqua/train_prithvi.pbs"
 }
 
+submit_predict() {
+    local YEAR="${2:-2026}"
+    echo "[3] Submitting prediction job (year=$YEAR)..."
+    ssh "$AQUA" "cd $REMOTE_DIR && qsub -v PRED_YEAR=$YEAR aqua/predict.pbs"
+}
+
 case "${1:-all}" in
-    --code)   sync_code ;;
-    --data)   sync_data ;;
-    --submit) submit_job ;;
-    all|"")   sync_code; sync_data; submit_job ;;
-    *)        echo "Usage: $0 [--code|--data|--submit]"; exit 1 ;;
+    --code)    sync_code ;;
+    --data)    sync_data ;;
+    --train)   submit_train ;;
+    --predict) submit_predict "$@" ;;
+    all|"")    sync_code; sync_data; submit_train ;;
+    *)
+        echo "Usage: $0 [--code|--data|--train|--predict YEAR]"
+        echo ""
+        echo "  (no args)     Sync code + data + submit training"
+        echo "  --code        Sync code only"
+        echo "  --data        Sync chip HDF5 files only"
+        echo "  --train       Submit training PBS job"
+        echo "  --predict Y   Submit inference PBS job for year Y (default: 2026)"
+        exit 1
+        ;;
 esac

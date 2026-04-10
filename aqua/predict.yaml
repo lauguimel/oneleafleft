@@ -1,0 +1,15 @@
+# Prithvi-EO inference — full Congo Basin map
+job_name: prithvi_pred
+ncpus: 8
+ngpus: 1
+gpu_id: H100
+mem: 64GB
+walltime: "12:00:00"
+conda:
+  env: deforest
+  fallback: true
+  cuda_libs: true
+env_vars:
+  PRED_YEAR: "2026"
+  CKPT: "models/checkpoints/last.ckpt"
+command: python scripts/predict_map.py --ckpt $CKPT --pred-year $PRED_YEAR --batch-size 64
