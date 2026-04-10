@@ -28,7 +28,10 @@ python -m pip install terratorch
 python -m pip install peft
 
 # Data
-python -m pip install h5py pandas numpy scipy
+python -m pip install h5py pandas numpy scipy rasterio
+
+# Drive download
+python -m pip install gdown
 
 # Verify
 echo ""
@@ -54,7 +57,8 @@ print('\\nAll good!')
 "
 
 echo ""
-echo "=== Done. To deploy: ==="
-echo "  rsync -avz --exclude data/chips/ ~/Documents/Recherche/Deforestation/ maitreje@aqua.qut.edu.au:~/Deforestation/"
-echo "  scp data/chips/*.h5 maitreje@aqua.qut.edu.au:~/Deforestation/data/chips/"
-echo "  qsub aqua/train_prithvi.pbs"
+echo "=== Done ==="
+echo "Next:"
+echo "  1. (on local) rsync code to Aqua"
+echo "  2. (on Aqua)  bash aqua/full_pipeline.sh   # download tiles + chip + ready to train"
+echo "  3. (on Aqua)  qsub aqua/train_prithvi.pbs  # submit training"
