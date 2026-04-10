@@ -1,0 +1,12 @@
+# Prithvi-EO segmentation training — Aqua H100
+job_name: prithvi_seg
+ncpus: 8
+ngpus: 1
+gpu_id: H100
+mem: 32GB
+walltime: "24:00:00"
+conda:
+  env: deforest
+  fallback: true
+  cuda_libs: true
+command: python aqua/train.py --chips-dir data/chips --batch-size 16 --max-epochs 50
