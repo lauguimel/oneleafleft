@@ -23,6 +23,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import glob
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,6 +73,39 @@ def build_loss_mask(lossyear_chip, pred_year):
     return mask
 
 
+def _open_or_build_vrt(tiles_dir: Path, prefix: str) -> Path | None:
+    """Find a GeoTIFF or build a VRT from GEE split files.
+
+    GEE exports large images as multiple tiles:
+      hls_2014-0000000000-0000000000.tif
+      hls_2014-0000000000-0000011776.tif
+      ...
+
+    This function detects splits and builds a VRT (virtual mosaic) via gdalbuildvrt.
+    If a single .tif exists, returns it directly.
+    """
+    single = tiles_dir / f"{prefix}.tif"
+    if single.exists():
+        return single
+
+    # Look for GEE split pattern: prefix-XXXX-YYYY.tif
+    splits = sorted(tiles_dir.glob(f"{prefix}-*.tif"))
+    if not splits:
+        return None
+
+    vrt_path = tiles_dir / f"{prefix}.vrt"
+    if vrt_path.exists():
+        return vrt_path
+
+    print(f"    Building VRT for {prefix} ({len(splits)} splits)...")
+    cmd = ["gdalbuildvrt", str(vrt_path)] + [str(p) for p in splits]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"    ERROR gdalbuildvrt: {result.stderr.strip()}")
+        return None
+    return vrt_path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -96,25 +131,25 @@ def main():
     all_years = sorted(all_years)
     print(f"    Feature years needed: {all_years}")
 
-    # Open rasters
+    # Open rasters (handle GEE split files via VRT)
     print(f"\n[2] Opening GeoTIFFs from {tiles_dir}")
     hls_srcs = {}
     for yr in all_years:
-        path = tiles_dir / f"hls_{yr}.tif"
-        if not path.exists():
-            print(f"    WARNING: {path} not found, will fill with zeros")
+        path = _open_or_build_vrt(tiles_dir, f"hls_{yr}")
+        if path is None:
+            print(f"    WARNING: hls_{yr} not found, will fill with zeros")
             hls_srcs[yr] = None
         else:
             hls_srcs[yr] = rasterio.open(path)
             print(f"    hls_{yr}: {hls_srcs[yr].width}×{hls_srcs[yr].height}, {hls_srcs[yr].count} bands")
 
-    srtm_path = tiles_dir / "srtm.tif"
-    tc_path = tiles_dir / "hansen_treecover2000.tif"
-    ly_path = tiles_dir / "hansen_lossyear.tif"
+    srtm_path = _open_or_build_vrt(tiles_dir, "srtm")
+    tc_path = _open_or_build_vrt(tiles_dir, "hansen_treecover2000")
+    ly_path = _open_or_build_vrt(tiles_dir, "hansen_lossyear")
 
-    srtm_src = rasterio.open(srtm_path) if srtm_path.exists() else None
-    tc_src = rasterio.open(tc_path) if tc_path.exists() else None
-    ly_src = rasterio.open(ly_path) if ly_path.exists() else None
+    srtm_src = rasterio.open(srtm_path) if srtm_path else None
+    tc_src = rasterio.open(tc_path) if tc_path else None
+    ly_src = rasterio.open(ly_path) if ly_path else None
 
     if srtm_src:
         print(f"    srtm: {srtm_src.count} bands")
@@ -153,10 +188,17 @@ def main():
             f.create_dataset("lon", shape=(n,), dtype=np.float64)
             f.create_dataset("lat", shape=(n,), dtype=np.float64)
 
+            # Pre-compute pixel coordinates for all chips (vectorised)
+            rows_px = np.zeros(n, dtype=np.int32)
+            cols_px = np.zeros(n, dtype=np.int32)
+            for i in range(n):
+                rows_px[i], cols_px[i] = lonlat_to_pixel(
+                    transform, split_df.loc[i, "lon"], split_df.loc[i, "lat"])
+
             n_ok = 0
-            for i, row in split_df.iterrows():
-                r, c = lonlat_to_pixel(transform, row.lon, row.lat)
-                pred_yr = int(row.pred_year)
+            for i in range(n):
+                r, c = int(rows_px[i]), int(cols_px[i])
+                pred_yr = int(split_df.loc[i, "pred_year"])
                 feat_years = list(range(int(row.feat_year_start), int(row.feat_year_end) + 1))
 
                 # Read static layers once
@@ -198,10 +240,10 @@ def main():
 
                 f["images"][i] = image_cube
                 f["masks"][i] = mask
-                f["pid"][i] = row.pid
+                f["pid"][i] = split_df.loc[i, "pid"]
                 f["pred_year"][i] = pred_yr
-                f["lon"][i] = row.lon
-                f["lat"][i] = row.lat
+                f["lon"][i] = split_df.loc[i, "lon"]
+                f["lat"][i] = split_df.loc[i, "lat"]
                 n_ok += 1
 
                 if (n_ok) % 1000 == 0 or n_ok == n:

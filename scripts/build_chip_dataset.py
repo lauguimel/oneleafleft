@@ -39,11 +39,11 @@ DATA_DIR = PROJECT_DIR / "data"
 PREDICTION_YEARS = [2019, 2020, 2021, 2022]
 FEATURE_WINDOW = 5
 
-N_TOTAL = 20_000
-FRAC_FRONT = 0.30
-FRAC_NEAR = 0.30
-FRAC_STABLE = 0.30
-FRAC_NONFOREST = 0.10
+N_TOTAL = 100_000
+FRAC_FRONT = 0.25         # ~25K (capped by availability ~27K)
+FRAC_NEAR = 0.35          # ~35K (compensates front shortfall)
+FRAC_STABLE = 0.30        # ~30K
+FRAC_NONFOREST = 0.10     # ~10K
 
 # Thresholds for chip classification
 FRONT_RATE_MIN = 0.01     # defo_rate_500m > 1% → active front
